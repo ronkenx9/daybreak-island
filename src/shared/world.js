@@ -1,0 +1,203 @@
+// The island, shared by the server (walkability, pathing, gameplay) and the
+// client (rendering). Pure JS, deterministic, no three.js.
+import { makeNoise } from './noise.js';
+
+export const SIZE = 240; // metres across the playable map
+export const SEA = 0;
+const N = makeNoise(4242);
+const ss = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Five company mesas ring the north of the island (bosses live here later).
+export const MESAS = ['TSLA', 'AMZN', 'NFLX', 'PLTR', 'AMD'].map((ticker, i) => {
+  const a = (-70 + i * 35) * Math.PI / 180;
+  return { ticker, x: Math.sin(a) * 72, z: -Math.cos(a) * 72 + 8, h: [9, 12, 14, 11, 9][i], r: [16, 18, 20, 17, 15][i] };
+});
+
+export const pathX = (z) => Math.sin(z * 0.04) * 10;
+export function pathDist(x, z) { return z < -30 || z > 110 ? 99 : Math.abs(x - pathX(z)); }
+
+function island(x, z) {
+  const warp = N.fbm(x * 0.01 + 3, z * 0.01 - 7, 3) * 22;
+  return 1 - ss(Math.hypot(x, z * 1.05) + warp, 88, 112);
+}
+
+function terrace(h, x, z, step) {
+  const jag = N.noise(x * 0.4, z * 0.4) * 0.05;
+  const t = h / step, f = t - Math.floor(t);
+  return (Math.floor(t) + ss(f, 0.84 + jag, 0.95 + jag)) * step;
+}
+
+export function height(x, z) {
+  const land = island(x, z);
+  let h;
+  if (land < 0.25) h = lerp(-8, -0.6, ss(land, 0, 0.25));
+  else if (land < 0.45) h = lerp(-0.6, 1.0, (land - 0.25) / 0.2);
+  else h = 1.0 + ss(land, 0.45, 1) * ((N.fbm(x * 0.02, z * 0.02, 3) * 0.5 + 0.5) * 6 + 0.3);
+  for (const m of MESAS) {
+    const d = Math.hypot(x - m.x, z - m.z) / m.r + N.noise(x * 0.08, z * 0.08) * 0.12;
+    h += m.h * (1 - ss(d, 0.55, 1.05)) * land;
+  }
+  if (h > 1.4) {
+    const gap = ss(N.noise(x * 0.05 + 13, z * 0.05 - 7), 0.2, 0.42);
+    const ramp = ss(pathDist(x, z), 2.5, 7) * (1 - gap);
+    h = lerp(h, 1.4 + terrace(h - 1.4, x, z, 2.6), ramp);
+  }
+  return h;
+}
+
+// ---------------------------------------------------------------- walkability
+export const CELL = 1;
+export const GRID = SIZE / CELL;
+export const MAX_RISE = 1.1; // hop-able ledge; bigger drops/rises are walls
+let H = null;
+export const toCell = (v) => Math.max(0, Math.min(GRID - 1, Math.floor((v + SIZE / 2) / CELL)));
+export const toWorld = (i) => (i + 0.5) * CELL - SIZE / 2;
+export function grid() {
+  if (!H) {
+    H = new Float32Array(GRID * GRID);
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) H[j * GRID + i] = height(toWorld(i), toWorld(j));
+    fillPits(H);
+  }
+  return H;
+}
+// Terrace noise leaves small pits a walker can drop into but never climb out
+// of. Flood inward from the sea, lowest first, raising any cell that sits more
+// than PIT_STEP below the neighbour it drains to, so every cell has a way out.
+// Only raises, so mesa cliffs stay walls.
+const PIT_STEP = 0.8;
+function fillPits(H) {
+  const done = new Uint8Array(GRID * GRID), q = new Heap();
+  for (let c = 0; c < GRID * GRID; c++) if (H[c] <= 0.25) { done[c] = 1; q.push(H[c], c); }
+  while (q.a.length) {
+    const [level, c] = q.pop();
+    const ci = c % GRID, cj = (c - ci) / GRID;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const i = ci + di, j = cj + dj, n = j * GRID + i;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID || done[n]) continue;
+      done[n] = 1;
+      H[n] = Math.max(H[n], level - PIT_STEP);
+      q.push(H[n], n);
+    }
+  }
+}
+export const groundAt = (x, z) => {
+  const g = grid();
+  // bilinear sample of the grid (fast, used every tick)
+  const fx = (x + SIZE / 2) / CELL - 0.5, fz = (z + SIZE / 2) / CELL - 0.5;
+  const i = Math.max(0, Math.min(GRID - 2, Math.floor(fx))), j = Math.max(0, Math.min(GRID - 2, Math.floor(fz)));
+  const u = Math.min(1, Math.max(0, fx - i)), v = Math.min(1, Math.max(0, fz - j));
+  const a = g[j * GRID + i], b = g[j * GRID + i + 1], c = g[(j + 1) * GRID + i], d = g[(j + 1) * GRID + i + 1];
+  return lerp(lerp(a, b, u), lerp(c, d, u), v);
+};
+export const isLand = (x, z) => groundAt(x, z) > 0.25 && Math.abs(x) < SIZE / 2 - 2 && Math.abs(z) < SIZE / 2 - 2;
+
+// Can a walker step from (x,z) toward (nx,nz)? Rises over MAX_RISE within 0.6m are walls.
+export function canStep(x, z, nx, nz) {
+  if (!isLand(nx, nz)) return false;
+  const d = Math.hypot(nx - x, nz - z) || 1e-6;
+  const ax = x + ((nx - x) / d) * 0.6, az = z + ((nz - z) / d) * 0.6;
+  return groundAt(ax, az) - groundAt(x, z) < MAX_RISE;
+}
+
+// ---------------------------------------------------------------- A* pathing
+class Heap {
+  constructor() { this.a = []; }
+  push(f, v) { const a = this.a; a.push([f, v]); let i = a.length - 1; while (i) { const p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } }
+  pop() {
+    const a = this.a, top = a[0], last = a.pop();
+    if (a.length) { a[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < a.length && a[l][0] < a[m][0]) m = l; if (r < a.length && a[r][0] < a[m][0]) m = r; if (m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m; } }
+    return top;
+  }
+  get size() { return this.a.length; }
+}
+
+function lineClear(ax, az, bx, bz) {
+  const d = Math.hypot(bx - ax, bz - az);
+  if (d < 1e-3) return true;
+  const ux = (bx - ax) / d, uz = (bz - az) / d;
+  for (let t = 0; t <= d; t += 0.35) {
+    const x = ax + ux * t, z = az + uz * t;
+    if (!isLand(x, z) || groundAt(x + ux * 0.6, z + uz * 0.6) - groundAt(x, z) >= MAX_RISE * 0.95) return false;
+  }
+  return true;
+}
+
+export function findPath(sx, sz, tx, tz) {
+  const g = grid();
+  const walk = (c) => g[c] > 0.25;
+  let start = toCell(sz) * GRID + toCell(sx), snapped = false;
+  if (!walk(start)) {
+    // standing on the shoreline: the ground under you is land but this cell's
+    // centre is water, so start from the nearest land cell you can step onto
+    let best = -1, bd = Infinity;
+    const si = start % GRID, sj = Math.floor(start / GRID), here = groundAt(sx, sz);
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const i = si + di, j = sj + dj, c = j * GRID + i;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID || !walk(c) || g[c] - here >= MAX_RISE * 0.9) continue;
+      const d = Math.hypot(toWorld(i) - sx, toWorld(j) - sz);
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (best >= 0) { start = best; snapped = true; }
+  }
+  let goal = toCell(tz) * GRID + toCell(tx);
+  if (!walk(goal)) {
+    let best = -1, bd = Infinity;
+    const gi = goal % GRID, gj = Math.floor(goal / GRID);
+    for (let dj = -8; dj <= 8; dj++) for (let di = -8; di <= 8; di++) {
+      const i = gi + di, j = gj + dj;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID || !walk(j * GRID + i)) continue;
+      if (di * di + dj * dj < bd) { bd = di * di + dj * dj; best = j * GRID + i; }
+    }
+    if (best < 0) return null;
+    goal = best;
+  }
+  const cost = new Float64Array(GRID * GRID).fill(Infinity), came = new Int32Array(GRID * GRID).fill(-1);
+  const closed = new Uint8Array(GRID * GRID);
+  const open = new Heap();
+  cost[start] = 0;
+  open.push(0, start);
+  const gx = goal % GRID, gz = Math.floor(goal / GRID);
+  const nb = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+  let found = start === goal;
+  while (open.size && !found) {
+    const [, c] = open.pop();
+    if (closed[c]) continue;
+    closed[c] = 1;
+    if (c === goal) { found = true; break; }
+    const ci = c % GRID, cj = Math.floor(c / GRID);
+    for (const [di, dj, k] of nb) {
+      const i = ci + di, j = cj + dj;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID) continue;
+      const n = j * GRID + i;
+      if (closed[n] || !walk(n) || g[n] - g[c] >= MAX_RISE * 0.9) continue;
+      const nc = cost[c] + k + Math.max(0, g[n] - g[c]) * 0.5;
+      if (nc < cost[n]) { cost[n] = nc; came[n] = c; open.push(nc + Math.hypot(i - gx, j - gz), n); }
+    }
+  }
+  if (!found) return null;
+  const pts = [];
+  for (let c = goal; c !== -1 && c !== start; c = came[c]) pts.unshift({ x: toWorld(c % GRID), z: toWorld(Math.floor(c / GRID)) });
+  pts.push({ x: tx, z: tz });
+  if (snapped) pts.unshift({ x: toWorld(start % GRID), z: toWorld(Math.floor(start / GRID)) });
+  const out = [];
+  let ax = sx, az = sz, k = 0;
+  while (k < pts.length) {
+    let far = k, m = k + 1;
+    while (m < pts.length && lineClear(ax, az, pts[m].x, pts[m].z)) { far = m; m += 2; }
+    out.push(pts[far]);
+    ax = pts[far].x; az = pts[far].z;
+    k = far + 1;
+  }
+  return out;
+}
+
+export function randomLandPoint(rnd, filter = () => true) {
+  for (let i = 0; i < 500; i++) {
+    const x = (rnd() - 0.5) * (SIZE - 20), z = (rnd() - 0.5) * (SIZE - 20);
+    if (groundAt(x, z) > 1.3 && filter(x, z)) return { x, z };
+  }
+  return { x: 0, z: 60 };
+}
+
+export const SPAWN = (() => { for (let z = 110; z > 40; z--) if (height(pathX(z), z) > 1.4) return { x: pathX(z - 4), z: z - 4 }; return { x: 0, z: 80 }; })();

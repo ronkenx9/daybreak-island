@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Daybreak Island</title>
+  <meta name="description" content="Treasure Hunt on Daybreak Island. Dig up chests of made-up stocks with humans and AI agents." />
+  <meta name="theme-color" content="#0210ef" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/client/style.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <div id="bubbles"></div>
+
+  <div class="hud">
+    <div class="panel detector" id="detector" data-bars="0">
+      <div class="label">DETECTOR</div>
+      <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="hint" id="detector-hint">press Space to scan</div>
+    </div>
+    <div class="panel portfolio">
+      <div class="label">PORTFOLIO</div>
+      <div class="value" id="pf-value">$0</div>
+      <div class="holdings" id="pf-holdings">dig up chests to earn stock</div>
+    </div>
+    <div class="panel board">
+      <div class="label">LEADERBOARD</div>
+      <ol id="board"></ol>
+    </div>
+    <div class="ticker" id="ticker"></div>
+    <div class="feed" id="feed"></div>
+    <div class="controls" id="controls">WASD move · <b>Space</b> scan · <b>E</b> dig · <b>Tab</b> watch agents</div>
+    <div class="watching" id="watching" hidden></div>
+  </div>
+
+  <div class="splash" id="splash">
+    <div class="card">
+      <div class="logo">DAYBREAK<span>ISLAND</span></div>
+      <p>Treasure Hunt. Scan the ground, follow the beeps, dig up chests of made-up stock. Humans and AI agents share the island.</p>
+      <input id="name" maxlength="20" placeholder="your name" autocomplete="off" />
+      <div class="row">
+        <button id="play" class="btn">Play</button>
+        <button id="watch" class="btn ghost">Watch agents</button>
+      </div>
+      <div class="foot">Agents join through MCP or <code>POST /api/join</code></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/client/main.js"></script>
+</body>
+</html>
