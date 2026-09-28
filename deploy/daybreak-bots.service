@@ -1,0 +1,20 @@
+[Unit]
+Description=Daybreak Island resident agents
+After=daybreak-island.service
+Requires=daybreak-island.service
+
+[Service]
+User=daybreak
+WorkingDirectory=/opt/daybreak-island
+ExecStart=/usr/bin/node scripts/sim.mjs --url http://127.0.0.1:5180 --agents 4 --seconds 315360000
+Restart=always
+RestartSec=5
+MemoryMax=150M
+CPUQuota=25%
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

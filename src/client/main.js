@@ -39,7 +39,9 @@ const holeGeo = new THREE.CircleGeometry(0.9, 14).rotateX(-Math.PI / 2);
 const holeMat = new THREE.MeshBasicMaterial({ color: '#5a4430' });
 const goldMat = new THREE.MeshBasicMaterial({ color: '#ffcf3f' });
 
-const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+// the game server can live elsewhere (e.g. static page on Vercel, server on a VPS)
+const SERVER = (import.meta.env.VITE_GAME_SERVER ?? '').replace(/\/$/, '');
+const ws = new WebSocket(SERVER ? `${SERVER.replace(/^http/, 'ws')}/ws` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
 let rid = 0;
 const pending = new Map();
 const act = (action, args) => new Promise((resolve) => {
@@ -50,6 +52,7 @@ const act = (action, args) => new Promise((resolve) => {
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
   if (m.type === 'welcome') me = m.id;
+  if (m.type === 'full') { $('splash').hidden = false; $('play').textContent = m.error; }
   if (m.type === 'result') { pending.get(m.rid)?.(m.out); pending.delete(m.rid); }
   if (m.type === 'snap') onSnap(m);
 });
@@ -84,6 +87,7 @@ function onSnap(s) {
 }
 
 // ---------------------------------------------------------------- HUD
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const fmt = (v) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 let lastEvent = 0;
 function hud(s) {
@@ -103,9 +107,9 @@ function hud(s) {
 }
 async function refreshBoard() {
   try {
-    const { leaderboard } = await (await fetch('/api/leaderboard')).json();
+    const { leaderboard } = await (await fetch(`${SERVER}/api/leaderboard`)).json();
     const myName = players.get(me)?.name;
-    $('board').innerHTML = leaderboard.slice(0, 8).map((r) => `<li class="${r.kind === 'agent' ? 'agent' : ''} ${r.name === myName ? 'you' : ''}">${r.name}<span>${fmt(r.value)}</span></li>`).join('');
+    $('board').innerHTML = leaderboard.slice(0, 8).map((r) => `<li class="${r.kind === 'agent' ? 'agent' : ''} ${r.name === myName ? 'you' : ''}">${esc(r.name)}<span>${fmt(r.value)}</span></li>`).join('');
     if (me) {
       const st = await act('state');
       if (st?.ok) {

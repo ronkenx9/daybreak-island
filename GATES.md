@@ -36,3 +36,20 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
   CHECK: node scripts/soak.mjs --bots 12 --hours 2 --runs 5
   EXPECT: SOAK OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=ff6c25212c452ac11f20c571f377f43638a7f77f42c36ac6aa6df161ef9620a3; exit=0; EXPECT=matched; output-sha256=0305b93068a4d032dd2c0f87b397c20c6d14c87be58f3384a46a78c2b2333dbd; output-bytes=278; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=119a07387374/26 entries
+
+## Slice 2: public deploy (Vercel page + VPS game server)
+
+- [x] G8: The server is safe to expose publicly: a player cap, per-IP join rate limit, one player per WebSocket connection, small max message size, and stale agent tokens are cleaned up.
+  CHECK: node test/public.mjs
+  EXPECT: PUBLIC OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b8d359bfda70964c8310b6c92b89c5c48a7047d8d32139ca0fa9dd2bfa06e230; exit=0; EXPECT=matched; output-sha256=0eb9cf176e3f038f73dd288479aec03f715d0e410479c0bd150fa83d71fa72aa; output-bytes=291; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [ ] G9: The live game server on the VPS answers over HTTPS with resident agents playing.
+  CHECK: curl -s https://198-96-95-46.sslip.io/api/health
+  EXPECT: "ok":true
+  EVIDENCE: pending
+
+- [ ] G10: The Vercel site loads in a real browser, connects to the VPS server over secure WebSocket, shows live characters and the chibi model, with no page errors.
+  CHECK: node scripts/check-live.mjs
+  EXPECT: LIVE OK
+  EVIDENCE: pending
