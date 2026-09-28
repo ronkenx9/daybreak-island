@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { buildIsland } from './scene.js';
+import { makeRenderer } from './render.js';
+import { makeFx } from './fx.js';
 import { makeCharacter } from './character.js';
 import { loadChibi, makeChibi } from './chibi.js';
 import { groundAt } from '../shared/world.js';
@@ -9,23 +11,12 @@ import { hasWallet, connect, signMessage, sendTx } from './wallet.js';
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
-// ---------------------------------------------------------------- renderer (lean)
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-let pixelRatio = Math.min(devicePixelRatio, 1.5);
-renderer.setPixelRatio(pixelRatio);
-renderer.setSize(innerWidth, innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-$('app').appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color('#a9d8f0');
-scene.fog = new THREE.Fog('#a9d8f0', 90, 260);
-scene.add(new THREE.HemisphereLight('#fff6e0', '#6a8a3a', 1.4));
-const sun = new THREE.DirectionalLight('#fff3dc', 2.2);
-sun.position.set(-40, 80, 30);
-scene.add(sun);
-const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 1, 600);
+// ---------------------------------------------------------------- renderer, lights, finishing pass
+const view = makeRenderer($('app'), { tier: params.get('quality') });
+const { renderer, scene, camera } = view;
 const island = buildIsland(scene);
+view.onTier((tier) => island.grass.setDensity(tier.grass));
+const fx = makeFx(scene);
 // the Blender chibi; the code-built stand-in is only a fallback
 let chibi = 'loading';
 loadChibi().then(() => { chibi = 'ready'; }).catch((e) => { chibi = 'failed'; console.warn('chibi.glb failed, using stand-in', e); });
@@ -36,10 +27,6 @@ const PORTRAIT = params.has('portrait'); // debug: front close-up of the followe
 // ---------------------------------------------------------------- world state from the server
 const players = new Map(); // id -> { ch, cur: {x,y,z,h}, target, anim, ... }
 let me = null, watchId = null, snap = null;
-const holeMeshes = [];
-const holeGeo = new THREE.CircleGeometry(0.9, 14).rotateX(-Math.PI / 2);
-const holeMat = new THREE.MeshBasicMaterial({ color: '#5a4430' });
-const goldMat = new THREE.MeshBasicMaterial({ color: '#ffcf3f' });
 
 // the game server can live elsewhere (e.g. static page on Vercel, server on a VPS)
 const SERVER = (import.meta.env.VITE_GAME_SERVER ?? '').replace(/\/$/, '');
@@ -70,7 +57,7 @@ function onSnap(s) {
   if (chibi === 'loading') return; // wait for the model so nobody spawns as the stand-in
   snap = s;
   const seen = new Set();
-  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars] of s.players) {
+  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars, scanAge, dig] of s.players) {
     seen.add(id);
     let p = players.get(id);
     if (!p) {
@@ -81,16 +68,9 @@ function onSnap(s) {
       p = { ch, tag, bub, cur: { x, y, z, h }, name, kind };
       players.set(id, p);
     }
-    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars });
+    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars, scanAge, dig, snapT: performance.now() });
   }
   for (const [id, p] of players) if (!seen.has(id)) { scene.remove(p.ch.root); p.tag.remove(); p.bub.remove(); players.delete(id); }
-  // holes
-  while (holeMeshes.length < s.holes.length) { const m = new THREE.Mesh(holeGeo, holeMat); scene.add(m); holeMeshes.push(m); }
-  holeMeshes.forEach((m, i) => {
-    const h = s.holes[i];
-    m.visible = !!h;
-    if (h) { m.position.set(h[0], groundAt(h[0], h[1]) + 0.05, h[1]); m.material = h[2] ? goldMat : holeMat; m.scale.setScalar(h[2] ? 1.3 : 1); }
-  });
   hud(s);
 }
 
@@ -279,14 +259,15 @@ $('watch').addEventListener('click', () => { $('splash').hidden = true; $('contr
 if (params.has('watch')) $('watch').click();
 
 // ---------------------------------------------------------------- loop
-const camPos = new THREE.Vector3(0, 60, 120), camLook = new THREE.Vector3(0, 0, 60);
+const camPos = new THREE.Vector3(0, 60, 120), camLook = new THREE.Vector3(0, 0, 60), focusV = new THREE.Vector3();
 const v = new THREE.Vector3();
-let last = performance.now(), fpsAcc = 0, fpsN = 0, qualityChecked = 0;
+const fxPlayers = [];
+let last = performance.now(), fpsAcc = 0, fpsN = 0;
 function frame() {
   const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   sendMove();
-  island.update(now / 1000);
+  fxPlayers.length = 0;
   for (const [id, p] of players) {
     const k = 1 - Math.exp(-dt * 12);
     p.cur.x += (p.target.x - p.cur.x) * k; p.cur.z += (p.target.z - p.cur.z) * k; p.cur.y += (p.target.y - p.cur.y) * k;
@@ -294,44 +275,41 @@ function frame() {
     const moving = Math.hypot(p.target.x - p.cur.x, p.target.z - p.cur.z) > 0.05 || p.anim === 'walk';
     p.ch.root.position.set(p.cur.x, p.cur.y, p.cur.z);
     p.ch.root.rotation.y = p.cur.h;
-    p.ch.update(dt, p.anim, moving, p.emote);
+    // ages advance between snapshots so animations stay smooth
+    const since = (now - (p.snapT ?? now)) / 1000;
+    const scanAge = p.scanAge === null || p.scanAge === undefined ? null : p.scanAge + since;
+    p.ch.update(dt, p.anim, moving, p.emote, scanAge, p.bars ?? 0);
+    fxPlayers.push({ id, x: p.cur.x, z: p.cur.z, h: p.cur.h, bars: p.bars ?? 0, scanAge, dig: p.dig ?? null });
     // name tags + speech bubbles
-    v.set(p.cur.x, p.cur.y + 3.4, p.cur.z).project(camera);
+    v.set(p.cur.x, p.cur.y + 3.1, p.cur.z).project(camera);
     const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight, onScreen = v.z < 1;
     p.tag.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, 0)`;
     p.tag.hidden = !onScreen;
     p.bub.hidden = !p.say || !onScreen;
     if (p.say) { p.bub.textContent = p.say; p.bub.style.transform = `translate(${sx}px, ${sy - 8}px) translate(-50%, -100%)`; }
   }
-  // camera: high three-quarter follow of you (or the agent you're watching)
+  fx.update(dt, fxPlayers, snap?.holes ?? []);
+  // clear grass inside the nearest holes (finished and being dug)
+  const nearHoles = (snap?.holes ?? []).map(([x, z]) => ({ x, z, r: 1.3 }));
+  for (const q of fxPlayers) if (q.dig !== null) nearHoles.push({ x: q.x + Math.sin(q.h) * 0.75, z: q.z + Math.cos(q.h) * 0.75, r: 0.4 + q.dig * 0.9 });
+  nearHoles.sort((a, b) => Math.hypot(a.x - camLook.x, a.z - camLook.z) - Math.hypot(b.x - camLook.x, b.z - camLook.z));
+  island.grass.setHoles(nearHoles);
+  // camera: close three-quarter view that leads a little in the direction you walk
   const focus = players.get(watchId ?? me) ?? players.get(me);
-  const fx = focus ? focus.cur.x : 0, fz = focus ? focus.cur.z : 60, fy = focus ? focus.cur.y : 2;
-  if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx + Math.sin(h) * 5.5, fy + 2.2, fz + Math.cos(h) * 5.5); camLook.set(fx, fy + 1.3, fz); } else {
-    camPos.lerp(v.set(fx, fy + 18 * ZOOM, fz + 25 * ZOOM), 1 - Math.exp(-dt * 4));
-    camLook.lerp(v.set(fx, fy, fz), 1 - Math.exp(-dt * 6));
+  const fx0 = focus ? focus.cur.x : 0, fz0 = focus ? focus.cur.z : 60, fy = focus ? focus.cur.y : 2;
+  const lead = focus && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05 ? 1.6 : 0;
+  const fx1 = fx0 + (focus ? Math.sin(focus.cur.h) * lead : 0), fz1 = fz0 + (focus ? Math.cos(focus.cur.h) * lead : 0);
+  if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
+    camPos.lerp(v.set(fx1, fy + 21 * ZOOM, fz1 + 20 * ZOOM), 1 - Math.exp(-dt * 3.5));
+    camLook.lerp(v.set(fx1, fy + 0.6, fz1), 1 - Math.exp(-dt * 5));
   }
   camera.position.copy(camPos);
   camera.lookAt(camLook);
-  renderer.render(scene, camera);
-  // adaptive quality: drop resolution if we can't hold ~50fps
+  focusV.set(camLook.x, fy, camLook.z);
+  island.update(now / 1000, focusV);
+  view.render(focusV, dt, now);
   fpsAcc += dt; fpsN++;
-  if (fpsAcc > 2) {
-    const fps = fpsN / fpsAcc;
-    window.__fps = fps;
-    if (fps < 48 && pixelRatio > 0.75 && now - qualityChecked > 3000) { pixelRatio = Math.max(0.75, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); qualityChecked = now; }
-    fpsAcc = 0; fpsN = 0;
-  }
+  if (fpsAcc > 2) { window.__fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
 }
 renderer.setAnimationLoop(frame);
-// on tall phone screens keep at least ~52 deg of horizontal view, else you
-// only see a sliver of the island around your character
-function fitCamera() {
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
-  const minHFov = (52 * Math.PI) / 180;
-  camera.fov = Math.min(70, Math.max(34, (2 * Math.atan(Math.tan(minHFov / 2) / camera.aspect) * 180) / Math.PI));
-  camera.updateProjectionMatrix();
-}
-addEventListener('resize', fitCamera);
-fitCamera();
-window.__dbi = { renderer, scene, players, get me() { return me; } };
+window.__dbi = { renderer, scene, players, view, fx, island, get me() { return me; } };

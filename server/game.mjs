@@ -19,7 +19,7 @@ export const MEME_STOCKS = [
 
 const LOOKS = ['racer', 'midnight', 'electric', 'cloud', 'orbit', 'afterhours'];
 const SPEED = 6.5;
-const DIG_TIME = 1.2;
+const DIG_TIME = 1.8; // long enough to see the hole grow and the dirt fly
 const DETECT_RANGE = 28;
 const ACTIVE_CHESTS = 14;
 const EMOTES = ['wave', 'cheer', 'sad', 'dance', 'shrug'];
@@ -283,6 +283,9 @@ export class Game {
     }
   }
 
+  // the hole appears just in front of the digger, where the shovel goes in
+  digSpot(p) { return { x: p.x + Math.sin(p.heading) * 0.75, z: p.z + Math.cos(p.heading) * 0.75 }; }
+
   tickDig(p, dt) {
     p.dig.t -= dt;
     if (p.dig.t > 0) return;
@@ -294,7 +297,7 @@ export class Game {
       for (const [t, n] of Object.entries(chest.loot)) p.portfolio[t] = (p.portfolio[t] ?? 0) + n;
       p.found++;
       p.anim = 'cheer'; p.emote = 'cheer'; p.emoteT = 2;
-      this.holes.push({ x: chest.x, z: chest.z, t: this.t, found: chest.rarity });
+      this.holes.push({ ...this.digSpot(p), t: this.t, found: chest.rarity });
       this.pushEvent({ kind: 'chest', who: p.name, rarity: chest.rarity, loot: chest.loot });
       this.spawnChest();
       const result = { ok: true, found: true, rarity: chest.rarity, loot: chest.loot, portfolioValue: this.portfolioValue(p) };
@@ -306,7 +309,7 @@ export class Game {
       } else resolve(result);
     } else {
       p.anim = 'idle';
-      this.holes.push({ x: p.x, z: p.z, t: this.t, found: null });
+      this.holes.push({ ...this.digSpot(p), t: this.t, found: null });
       resolve({ ok: true, found: false, hint: 'nothing here. use detect and follow the bars up' });
     }
   }
@@ -315,8 +318,8 @@ export class Game {
   snapshot() {
     return {
       t: round(this.t, 2),
-      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars]),
-      holes: this.holes.map((h) => [round(h.x), round(h.z), h.found]),
+      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars, p.detect.t ? round(this.t - p.detect.t, 1) : null, p.dig ? round(1 - p.dig.t / DIG_TIME, 2) : null]),
+      holes: this.holes.map((h) => [round(h.x), round(h.z), h.found, round(this.t - h.t, 1)]),
       market: this.market.map((s) => [s.ticker, round(s.price), round(((s.price - s.open) / s.open) * 100, 1)]),
       events: this.events.slice(-6),
     };

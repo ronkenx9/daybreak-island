@@ -82,3 +82,25 @@ Design: legendary chests no longer drop real stock directly. A fixed daily prize
   CHECK: node scripts/check-vault.mjs
   EXPECT: VAULT OK
   EVIDENCE: pending
+
+## Slice 4: visual quality (close the gap to the reference video / Bruno Simon)
+
+Target: sun shadows, dense wind-blown grass and props, forest clumps, finishing pass (tone mapping, miniature-style blur, vignette), a closer 3/4 camera, a real metal detector that sweeps with a ground pulse, and real digging (growing hole, flying dirt, chest reveal). Quality drops automatically on slow devices.
+
+- [x] G16: Still light: 60fps or better in headless Chrome at 1280x720 on the high tier, under 150 draw calls, JS under 1.5MB.
+  CHECK: node scripts/perf.mjs
+  EXPECT: PERF OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=c75e17706f6438f6e04faa9ce95723a19cadd56172bc2617d9671dc1226f4965; exit=0; EXPECT=matched; output-sha256=96cb8455cd71eee7e1e5bbc53e0d92cfeb6b70a3b1dee21a94da94961886fe2a; output-bytes=68; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G17: The visual systems are really on and react to play: shadows, finishing pass, dense grass, props; scanning shows the detector sweep and a ground pulse; digging grows a hole and throws dirt; a found chest rises out of the hole. Screenshot strip as evidence.
+  CHECK: node scripts/check-visuals.mjs
+  EXPECT: VISUALS OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=6c3b170f94b5eb6da5cf438d26732ff5b4cfd32c1932c15d94f50c0e0272da07; exit=0; EXPECT=matched; output-sha256=9f3bffadc8c3503b283673e01a149ff9ba68af076190dcd4205048371bd12a45; output-bytes=187; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G18: Automatic quality tiers: a slow device drops to a cheaper tier (no blur pass, smaller shadows, less grass) instead of lagging.
+  CHECK: node scripts/check-visuals.mjs --tiers
+  EXPECT: TIERS OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=d0d6cf74f2bfd83f317a43de0a82d144ef6106d58e0d2d9d2da8c5a0d6ec3a67; exit=0; EXPECT=matched; output-sha256=8eb5b5935fcdca835e970400909d8da498fb41d236552b3a368d79a1e3e0fe10; output-bytes=223; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [ ] G19: (manual) side-by-side before/after screenshot against the reference video frame; the owner judges.
+  EVIDENCE: evidence/before-after.png (before | now | reference frame); awaiting owner judgement
