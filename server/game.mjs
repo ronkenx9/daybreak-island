@@ -14,8 +14,8 @@ export const MEME_STOCKS = [
   { ticker: 'PUMP', name: 'Pump & Sons', price: 2.4 },
   { ticker: 'WAGMI', name: 'WAGMI Group', price: 18.0 },
 ];
-// real tokenized stocks: rare drops only (paper for now)
-export const REAL_DROPS = ['TSLA', 'AMZN', 'NFLX', 'PLTR', 'AMD'];
+// Real tokenized stocks never drop from chests directly: a legendary chest
+// draws from the daily prize pool (server/prizes.mjs) instead.
 
 const LOOKS = ['racer', 'midnight', 'electric', 'cloud', 'orbit', 'afterhours'];
 const SPEED = 6.5;
@@ -28,8 +28,9 @@ const rngFrom = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79
 const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
 export class Game {
-  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now() } = {}) {
+  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now(), prizes = null } = {}) {
     this.now = now;
+    this.prizes = prizes; // PrizePool or null
     this.rnd = rngFrom(createHmac('sha256', secret).update('chests').digest().readUInt32BE(0));
     this.players = new Map();
     this.chests = [];
@@ -52,7 +53,7 @@ export class Game {
     const add = (t, n) => { loot[t] = (loot[t] ?? 0) + n; };
     if (rarity === 'common') add(pick(), 5 + Math.floor(this.rnd() * 16));
     if (rarity === 'rare') { add(pick(), 20 + Math.floor(this.rnd() * 40)); add(pick(), 10 + Math.floor(this.rnd() * 20)); }
-    if (rarity === 'legendary') { add(pick(), 60 + Math.floor(this.rnd() * 60)); add(REAL_DROPS[Math.floor(this.rnd() * REAL_DROPS.length)], 1); }
+    if (rarity === 'legendary') add(pick(), 60 + Math.floor(this.rnd() * 60));
     this.chests.push({ id: `c${this.nextId++}`, x: p.x, z: p.z, rarity, loot });
   }
 
@@ -70,7 +71,7 @@ export class Game {
       id, name: clean, kind, look: LOOKS.includes(look) ? look : LOOKS[this.players.size % LOOKS.length],
       x: SPAWN.x + (this.rnd() - 0.5) * 6, z: SPAWN.z + (this.rnd() - 0.5) * 6, heading: Math.PI,
       move: null, path: null, pathWaiters: [], anim: 'idle', say: null, sayT: 0, emote: null, emoteT: 0,
-      dig: null, detect: { signal: 0, bars: 0, t: 0 }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0,
+      dig: null, detect: { signal: 0, bars: 0, t: 0 }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0, wallet: null,
     };
     p.y = groundAt(p.x, p.z);
     this.players.set(id, p);
@@ -152,6 +153,18 @@ export class Game {
         p.emote = args.name; p.emoteT = 2.5;
         return { ok: true };
       }
+      case 'link_wallet_challenge': {
+        if (!this.prizes?.enabled) return { ok: false, error: 'real prizes are off on this server' };
+        return { ok: true, message: this.prizes.challenge(p), how: 'sign this exact message with your wallet (personal_sign), then call link_wallet with { address, signature }' };
+      }
+      case 'link_wallet': {
+        if (!this.prizes?.enabled) return { ok: false, error: 'real prizes are off on this server' };
+        return this.prizes.link(p, args);
+      }
+      case 'prizes': {
+        if (!this.prizes?.enabled) return { ok: false, error: 'real prizes are off on this server' };
+        return this.prizes.list(p);
+      }
       case 'state': return { ok: true, ...this.view(p) };
       case 'look': return { ok: true, ...this.look(p) };
       case 'leaderboard': return { ok: true, leaderboard: this.leaderboard() };
@@ -185,13 +198,14 @@ export class Game {
 
   view(p) {
     return {
-      you: { id: p.id, name: p.name, look: p.look, x: round(p.x), y: round(p.y), z: round(p.z), heading: round(p.heading), anim: p.anim, walking: !!p.path || !!p.move, digging: !!p.dig },
+      you: { id: p.id, name: p.name, look: p.look, wallet: p.wallet, x: round(p.x), y: round(p.y), z: round(p.z), heading: round(p.heading), anim: p.anim, walking: !!p.path || !!p.move, digging: !!p.dig },
       detector: { signal: p.detect.signal, bars: p.detect.bars, secondsAgo: round(this.t - p.detect.t, 1) },
       portfolio: { holdings: p.portfolio, value: this.portfolioValue(p), chestsFound: p.found },
       market: this.market.map((s) => ({ ticker: s.ticker, price: round(s.price), change: round(((s.price - s.open) / s.open) * 100, 1) })),
       nearby: this.look(p).players,
       recent: this.events.slice(-8),
-      rules: 'Walk around, call detect often (bars 0-5 rise as you near a buried chest), dig when bars are 5. Chests hold made-up stocks; legendary ones may hold a real tokenized stock.',
+      rules: 'Walk around, call detect often (bars 0-5 rise as you near a buried chest), dig when bars are 5. Chests hold made-up stocks. Legendary chests also win a real tokenized stock from the daily prize pool if you linked a wallet (one per wallet per day); collect it with the prizes action.',
+      realPrizes: this.prizes?.enabled ? this.prizes.stats() : { mode: 'off' },
     };
   }
 
@@ -283,7 +297,13 @@ export class Game {
       this.holes.push({ x: chest.x, z: chest.z, t: this.t, found: chest.rarity });
       this.pushEvent({ kind: 'chest', who: p.name, rarity: chest.rarity, loot: chest.loot });
       this.spawnChest();
-      resolve({ ok: true, found: true, rarity: chest.rarity, loot: chest.loot, portfolioValue: this.portfolioValue(p) });
+      const result = { ok: true, found: true, rarity: chest.rarity, loot: chest.loot, portfolioValue: this.portfolioValue(p) };
+      if (chest.rarity === 'legendary' && this.prizes) {
+        resolve(this.prizes.award(p).then((prize) => {
+          if (prize.won) this.pushEvent({ kind: 'prize', who: p.name, ticker: prize.prize.ticker, amount: prize.prize.amountTokens });
+          return { ...result, realPrize: prize };
+        }).catch(() => ({ ...result, realPrize: { won: false, reason: 'prize service error, try again later' } })));
+      } else resolve(result);
     } else {
       p.anim = 'idle';
       this.holes.push({ x: p.x, z: p.z, t: this.t, found: null });
@@ -303,4 +323,4 @@ export class Game {
   }
 }
 
-export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'walk_to', 'detect', 'dig', 'say', 'emote'];
+export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'walk_to', 'detect', 'dig', 'say', 'emote', 'link_wallet_challenge', 'link_wallet', 'prizes'];

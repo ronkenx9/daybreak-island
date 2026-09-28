@@ -27,6 +27,20 @@
       <div class="value" id="pf-value">$0</div>
       <div class="holdings" id="pf-holdings">dig up chests to earn stock</div>
     </div>
+    <div class="panel prizes" id="prizes" hidden>
+      <div class="label">REAL STOCK</div>
+      <div class="prize-sub" id="prize-sub">legendary chests win real stock</div>
+      <button class="mini" id="link-wallet">Link wallet</button>
+      <ul id="prize-list"></ul>
+    </div>
+    <div class="win" id="win" hidden>
+      <div class="win-card">
+        <div class="win-kicker">LEGENDARY CHEST</div>
+        <div class="win-title" id="win-title">You won real stock!</div>
+        <p id="win-text">Collect it to your wallet on Robinhood Chain.</p>
+        <div class="row"><button class="btn" id="win-collect">Collect</button><button class="btn ghost" id="win-close">Later</button></div>
+      </div>
+    </div>
     <div class="panel board">
       <div class="label">LEADERBOARD</div>
       <ol id="board"></ol>

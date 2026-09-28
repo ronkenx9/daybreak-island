@@ -3,6 +3,8 @@ import { buildIsland } from './scene.js';
 import { makeCharacter } from './character.js';
 import { loadChibi, makeChibi } from './chibi.js';
 import { groundAt } from '../shared/world.js';
+import { CHAIN } from '../shared/chain.js';
+import { hasWallet, connect, signMessage, sendTx } from './wallet.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -57,7 +59,7 @@ const act = (action, args) => new Promise((resolve) => {
 });
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
-  if (m.type === 'welcome') me = m.id;
+  if (m.type === 'welcome') { me = m.id; showPrizePanel(); }
   if (m.type === 'full') { $('splash').hidden = false; $('play').textContent = m.error; }
   if (m.type === 'result') { pending.get(m.rid)?.(m.out); pending.delete(m.rid); }
   if (m.type === 'snap') onSnap(m);
@@ -104,6 +106,7 @@ function hud(s) {
     const div = document.createElement('div');
     if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}`; }
     else if (e.kind === 'join') div.textContent = `${e.who} arrived`;
+    else if (e.kind === 'prize') { div.className = 'prize'; div.textContent = `${e.who} won ${e.amount} real $${e.ticker}!`; }
     else if (e.kind === 'say') continue;
     else continue;
     $('feed').appendChild(div);
@@ -161,7 +164,89 @@ async function dig() {
   if (!r?.ok) { $('detector-hint').textContent = r?.error ?? 'busy'; return; }
   $('detector-hint').textContent = r.found ? `found a ${r.rarity} chest!` : 'nothing here';
   if (r.found) chime();
+  if (r.realPrize?.won) showWin(r.realPrize.prize);
+  else if (r.realPrize && prizeMode !== 'off') $('prize-sub').textContent = r.realPrize.reason;
 }
+
+// ---------------------------------------------------------------- real-stock prizes
+// Legendary chests win real tokenized stock from a small daily pool. The server
+// only signs a voucher; the player's own wallet collects it from the vault.
+let prizeMode = 'off', myWallet = null, pendingWin = null;
+fetch(`${SERVER}/api/prizes`).then((r) => r.json()).then((st) => { prizeMode = st.mode; showPrizePanel(); }).catch(() => {});
+function showPrizePanel() {
+  $('prizes').hidden = prizeMode === 'off' || !me;
+  if (!hasWallet()) { $('link-wallet').hidden = true; $('prize-sub').textContent = 'install a wallet (e.g. MetaMask) to win real stock'; }
+}
+const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+$('link-wallet').addEventListener('click', async (e) => {
+  e.currentTarget.blur();
+  const btn = $('link-wallet');
+  btn.disabled = true; btn.textContent = 'check your wallet…';
+  try {
+    const address = await connect();
+    const ch = await act('link_wallet_challenge');
+    if (!ch?.ok) throw new Error(ch?.error ?? 'could not start linking');
+    const r = await act('link_wallet', { address, signature: await signMessage(address, ch.message) });
+    if (!r?.ok) throw new Error(r?.error ?? 'link failed');
+    myWallet = r.wallet;
+    btn.hidden = true;
+    $('prize-sub').textContent = `wallet ${short(myWallet)} linked · dig legendary chests to win`;
+    refreshPrizes();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Link wallet';
+    $('prize-sub').textContent = err?.message?.slice(0, 80) ?? 'wallet link failed';
+  }
+});
+async function refreshPrizes() {
+  if (!myWallet) return;
+  const r = await act('prizes');
+  if (!r?.ok) return;
+  const ul = $('prize-list');
+  ul.replaceChildren(...r.prizes.slice(0, 4).map((p) => {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${p.amountTokens} $${p.ticker}`;
+    li.append(label);
+    if (p.status === 'issued') {
+      const b = document.createElement('button');
+      b.className = 'mini gold'; b.textContent = 'Collect';
+      b.addEventListener('click', (e) => { e.currentTarget.blur(); collect(p, b); });
+      li.append(b);
+    } else {
+      const tag = document.createElement('span');
+      tag.textContent = p.status === 'claimed' ? 'collected' : p.status;
+      li.append(tag);
+    }
+    return li;
+  }));
+}
+async function collect(prize, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'confirm…'; }
+  try {
+    const hash = await sendTx(myWallet, prize.tx);
+    const li = btn?.parentElement;
+    if (li) { const a = document.createElement('a'); a.href = `${CHAIN.explorer}/tx/${hash}`; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'sent ↗'; btn.replaceWith(a); }
+    $('prize-sub').textContent = `sent! ${prize.amountTokens} $${prize.ticker} is on its way`;
+    setTimeout(refreshPrizes, 4000);
+    return hash;
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Collect'; }
+    $('prize-sub').textContent = err?.message?.slice(0, 80) ?? 'collect failed';
+  }
+}
+function showWin(prize) {
+  pendingWin = prize;
+  $('win-title').textContent = `You won ${prize.amountTokens} real $${prize.ticker}!`;
+  $('win-text').textContent = 'A real tokenized stock from today\'s prize pool. Collect it to your wallet on Robinhood Chain.';
+  $('win').hidden = false;
+  refreshPrizes();
+}
+$('win-collect').addEventListener('click', async (e) => {
+  e.currentTarget.blur();
+  $('win').hidden = true;
+  if (pendingWin) await collect(pendingWin, null);
+});
+$('win-close').addEventListener('click', (e) => { e.currentTarget.blur(); $('win').hidden = true; });
 function cycleWatch() {
   const ids = [...players.keys()].filter((id) => players.get(id).kind === 'agent');
   if (!ids.length) return;

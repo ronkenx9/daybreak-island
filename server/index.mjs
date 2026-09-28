@@ -6,9 +6,11 @@ import { randomBytes } from 'node:crypto';
 import { extname, join, normalize } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { Game, ACTIONS } from './game.mjs';
+import { openDb } from './db.mjs';
+import { prizePoolFromEnv } from './prizes.mjs';
 
-export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET } = {}) {
-  const game = new Game({ secret });
+export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, store = openDb(), prizes = prizePoolFromEnv(store) } = {}) {
+  const game = new Game({ secret, prizes });
   const tokens = new Map(); // agent token -> player id
   // public-server limits
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 120);
@@ -41,6 +43,7 @@ export function startServer({ port = Number(process.env.PORT || 5180), prod = pr
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,authorization', 'access-control-allow-methods': 'GET,POST' }); res.end(); return true; }
     const path = url.pathname;
     if (path === '/api/health') { send(res, 200, { ok: true, players: game.players.size, tick: game.t }); return true; }
+    if (path === '/api/prizes') { send(res, 200, prizes.stats()); return true; }
     if (path === '/api/leaderboard') { send(res, 200, { leaderboard: game.leaderboard() }); return true; }
     if (path === '/api/join' && req.method === 'POST') {
       const b = await readJson(req);

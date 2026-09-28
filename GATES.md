@@ -1,6 +1,6 @@
 # Gates: Daybreak Island, slice 1 (Treasure Hunt, agent-first)
 
-OWNS: src/**, server/**, scripts/**, test/**, public/**, index.html, package.json, vite.config.js, README.md
+OWNS: src/**, server/**, scripts/**, test/**, public/**, contracts/**, deploy/**, index.html, package.json, vite.config.js, vercel.json, README.md
 
 Scope: A lightweight island game where the server owns the whole Treasure Hunt simulation (detector, digging, chests of made-up stock plus rare real drops). AI agents can join and play every action through HTTP/MCP with no browser. A Bruno-style low-cost renderer lets humans play or watch.
 
@@ -53,3 +53,32 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
   CHECK: node scripts/check-live.mjs
   EXPECT: LIVE OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=3043cbdfc22e82ab9685795d33d8eb64e2e1be6818da155332e48ecf8fd69c29; exit=0; EXPECT=matched; output-sha256=5c19a0557296f51a6914bb1bfb5599ad203bac187a1e8b48557f31f63a23f599; output-bytes=143; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+## Slice 3: real-stock prizes on Robinhood Chain testnet
+
+Design: legendary chests no longer drop real stock directly. A fixed daily prize pool (funded by anyone, e.g. the token-fee flywheel) pays out at most N prizes a day, at most one per wallet per day, and only to players who proved they own a wallet. The game server never holds funds: it signs a single-use, expiring voucher, and the winner (human or agent) collects from the PrizeVault contract. The contract enforces its own daily cap, per-wallet limit, one-time use, expiry and a pause switch, so a stolen signing key costs at most one day's cap. Modes: off (default), testnet (Robinhood Chain 46630), later mainnet.
+
+- [x] G11: PrizeVault contract is correct under unit and fuzz tests: valid voucher pays; replayed, expired, wrong-signer, wrong-chain, over-daily-cap, over-wallet-limit, unlisted-token and paused claims all revert; only admin can withdraw or change settings; anyone can fund.
+  CHECK: cd contracts && forge test
+  EXPECT: 0 failed
+  EVIDENCE: automatic-evidence=v1; definition-sha256=78f54098fec56beb60e15d5985529a61145090fda11fd1060a3b4580b6b68d23; exit=0; EXPECT=matched; output-sha256=e6c644f1fbd2ba85d8a68ecc551958769cdc08f732518a106bcdae8b33eebe3f; output-bytes=1204; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G12: Server prize logic: no wallet means no real prize; wallet linking requires a valid signature over a fresh single-use challenge; the daily pool and one-per-wallet-per-day hold across a server restart (persisted); vouchers verify against the signer; mode off never issues vouchers.
+  CHECK: node test/prizes.mjs
+  EXPECT: PRIZES OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=50292d537486a02f2522e91db10646b0aa36588a8285074babfc8d1e866157dc; exit=0; EXPECT=matched; output-sha256=d23a4b8f24503443a5af656016cc9ddf3009987dd5d7fa328b1530528f85066e; output-bytes=620; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G13: End to end on a local fork of Robinhood Chain testnet with the real stock token contracts: an agent joins over the public API, links a wallet, digs a legendary chest, gets a voucher and collects a real TSLA token on-chain; replay and paused-vault collections fail.
+  CHECK: node test/chain-e2e.mjs
+  EXPECT: CHAIN E2E OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=025482194377f3a877f8d1390346064aa6bfb4aa53f49701fc1056d7d40eada7; exit=0; EXPECT=matched; output-sha256=758d86de29621e10166eb8adbb424f0d7b9c5fb31987fbc3dc30a33af2b64b9c; output-bytes=371; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G14: In the browser, a player with a wallet links it, sees the won prize and collects it on the fork (injected test wallet).
+  CHECK: node test/browser-prize.mjs
+  EXPECT: BROWSER PRIZE OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=98dca490ed6aa772d45669e7d1bda80901047e6afaadcc11b1b1f97c1c8919ab; exit=0; EXPECT=matched; output-sha256=221ecfa875ebd4f6b636b06e8379aebaddc1a0d31de9b9b7b5bc1c3bf401a506; output-bytes=108; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [ ] G15: The vault is deployed on Robinhood Chain testnet, funded with faucet stock tokens, with the expected signer, caps and guardian (needs the owner to fund the deployer from the faucet).
+  CHECK: node scripts/check-vault.mjs
+  EXPECT: VAULT OK
+  EVIDENCE: pending

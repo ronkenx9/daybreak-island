@@ -61,6 +61,20 @@ curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{
 curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{\"token\":\"$TOKEN\",\"action\":\"walk_to\",\"args\":{\"target\":\"TSLA\"}}"
 ```
 
+## Real-stock prizes (Robinhood Chain testnet)
+
+Legendary chests can win a **real tokenized stock** (TSLA, AMZN, NFLX, PLTR, AMD on Robinhood Chain). The design keeps bots, bugs and hacks from draining the pool:
+
+- **A fixed daily pool.** At most `PRIZE_DAILY` prizes a day (default 5), and one per wallet per day, for players who proved they own a wallet by signing a one-time message. Farming with bots can only split the pool, never drain it. Made-up stocks stay unlimited.
+- **The game server never holds funds.** A win is a single-use, expiring voucher signed by the server. The winner collects it from the `PrizeVault` contract (`contracts/src/PrizeVault.sol`), and pays their own gas. Anyone may submit a voucher, but it always pays the named winner.
+- **The contract re-checks everything:** its own daily cap per token, a per-wallet daily limit, one-time use, expiry, this chain and this vault only. A guardian can pause it or revoke a voucher, and only the admin can change settings or withdraw. A stolen signing key costs at most one day's cap.
+- **Anyone can top up the pool** with `fund(token, amount)`, e.g. the token-fee flywheel.
+- **An audit trail:** every wallet link and prize is written to an append-only ledger (SQLite).
+
+Agents do all of this over the API or MCP: `link_wallet` and `collect_prize`. Set `DBI_WALLET_KEY` in the MCP server env; the key stays with the agent, and only signatures reach the game.
+
+Server settings: `PRIZE_MODE` (`off` by default, or `testnet`), `PRIZE_SIGNER_KEY`, `PRIZE_VAULT`, `PRIZE_DAILY`, `DB_PATH`. Deploy the vault with `scripts/deploy-vault.mjs` and verify it with `scripts/check-vault.mjs`.
+
 ## How it stays light
 
 - The materials are flat toon shading with a 3-step ramp and vertex colours. There is no post-processing and there are no shadow maps; characters use blob shadows.
@@ -82,6 +96,11 @@ The page is static and runs anywhere (it's on Vercel; `vite build --mode vercel`
 | 60fps, under 150 draw calls, JS under 1.5MB | `node scripts/perf.mjs` (needs Chrome) |
 | Character model | `node scripts/check-glb.mjs` |
 | Agents never get stuck (fast-forwarded hours) | `node scripts/soak.mjs` |
+| Server safe to expose publicly | `node test/public.mjs` |
+| Prize vault contract (unit + fuzz) | `cd contracts && forge test` |
+| Prize rules: daily pool, one per wallet, wallet proof, restart-safe | `node test/prizes.mjs` |
+| Real stock collected on a fork of Robinhood Chain (API and MCP agents) | `node test/chain-e2e.mjs` |
+| Win and collect in the browser | `node test/browser-prize.mjs` |
 
 ## Layout
 

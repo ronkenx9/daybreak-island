@@ -5,7 +5,10 @@ After=network.target
 [Service]
 User=daybreak
 WorkingDirectory=/opt/daybreak-island
-Environment=NODE_ENV=production HOST=127.0.0.1 PORT=5180
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=5180 DB_PATH=/var/lib/daybreak-island/island.db
+# prize settings + signer key (root-only file): PRIZE_MODE, PRIZE_SIGNER_KEY, PRIZE_VAULT, PRIZE_DAILY
+EnvironmentFile=-/etc/daybreak-island.env
+StateDirectory=daybreak-island
 ExecStart=/usr/bin/node server/index.mjs
 Restart=always
 RestartSec=2
