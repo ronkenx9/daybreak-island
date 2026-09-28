@@ -20,6 +20,16 @@ export const MEME_STOCKS = [
 const LOOKS = ['racer', 'midnight', 'electric', 'cloud', 'orbit', 'afterhours'];
 const SPEED = 6.5;
 const DIG_TIME = 1.8; // long enough to see the hole grow and the dirt fly
+const DETECT_COOLDOWN = 0.25; // readings refresh at most 4x a second; faster calls get the last one
+// digging where nothing is buried: often junk, for the laughs
+export const JUNK = {
+  boot: 'a rusty boot', cap: 'a bottle cap', phone: 'an old flip phone', duck: 'a rubber duck',
+  paperhands: 'a pair of paper hands', receipt: 'a soggy receipt', bag: 'an empty bag (you are the bag holder now)', can: 'a tin can',
+};
+const JUNK_CHANCE = 0.5;
+// consecutive finds multiply made-up loot; a miss resets the streak
+const STREAK_MULT = [1, 1, 1.5, 2, 2.5, 3];
+export const streakMultiplier = (streak) => STREAK_MULT[Math.min(streak, STREAK_MULT.length - 1)];
 const DETECT_RANGE = 28;
 const ACTIVE_CHESTS = 14;
 const EMOTES = ['wave', 'cheer', 'sad', 'dance', 'shrug'];
@@ -71,7 +81,7 @@ export class Game {
       id, name: clean, kind, look: LOOKS.includes(look) ? look : LOOKS[this.players.size % LOOKS.length],
       x: SPAWN.x + (this.rnd() - 0.5) * 6, z: SPAWN.z + (this.rnd() - 0.5) * 6, heading: Math.PI,
       move: null, path: null, pathWaiters: [], anim: 'idle', say: null, sayT: 0, emote: null, emoteT: 0,
-      dig: null, detect: { signal: 0, bars: 0, t: 0 }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0, wallet: null,
+      dig: null, detect: { signal: 0, bars: 0, t: 0, at: null }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0, wallet: null, streak: 0,
     };
     p.y = groundAt(p.x, p.z);
     this.players.set(id, p);
@@ -128,18 +138,23 @@ export class Game {
         return args.wait === false ? { ok: true, status: 'walking', waypoints: path.length } : promise;
       }
       case 'detect': {
+        if (p.detect.at !== null && this.t - p.detect.at < DETECT_COOLDOWN) {
+          const { signal, bars } = p.detect;
+          return { ok: true, signal, bars, hint: bars >= 5 ? 'right here, dig!' : bars >= 3 ? 'very close' : bars >= 1 ? 'something nearby' : 'nothing in range', cached: true };
+        }
         const { dist } = this.nearestChest(p.x, p.z);
         const signal = dist < DETECT_RANGE ? round(Math.pow(1 - dist / DETECT_RANGE, 1.6), 3) : 0;
         // 5 bars means "within digging reach"
         const bars = dist < 2.0 ? 5 : dist < 5 ? 4 : dist < 10 ? 3 : dist < 17 ? 2 : dist < DETECT_RANGE ? 1 : 0;
-        p.detect = { signal, bars, t: this.t };
+        p.detect = { signal, bars, t: this.t, at: this.t };
         return { ok: true, signal, bars, hint: bars >= 5 ? 'right here, dig!' : bars >= 3 ? 'very close' : bars >= 1 ? 'something nearby' : 'nothing in range' };
       }
       case 'dig': {
         this.cancelPath(p, 'interrupted');
         p.move = null;
         p.anim = 'dig';
-        return new Promise((resolve) => { p.dig = { t: DIG_TIME, resolve }; });
+        const aim = this.nearestChest(p.x, p.z);
+        return new Promise((resolve) => { p.dig = { t: DIG_TIME, resolve, target: aim.chest && aim.dist < 2.2 ? aim.chest.id : null }; });
       }
       case 'say': {
         const text = String(args.text ?? '').slice(0, 140);
@@ -289,18 +304,21 @@ export class Game {
   tickDig(p, dt) {
     p.dig.t -= dt;
     if (p.dig.t > 0) return;
-    const resolve = p.dig.resolve;
+    const { resolve, target } = p.dig;
     p.dig = null;
     const { chest, dist } = this.nearestChest(p.x, p.z);
     if (chest && dist < 2.2) {
       this.chests.splice(this.chests.indexOf(chest), 1);
-      for (const [t, n] of Object.entries(chest.loot)) p.portfolio[t] = (p.portfolio[t] ?? 0) + n;
+      p.streak++;
+      const multiplier = streakMultiplier(p.streak);
+      const loot = Object.fromEntries(Object.entries(chest.loot).map(([t, n]) => [t, Math.round(n * multiplier)]));
+      for (const [t, n] of Object.entries(loot)) p.portfolio[t] = (p.portfolio[t] ?? 0) + n;
       p.found++;
       p.anim = 'cheer'; p.emote = 'cheer'; p.emoteT = 2;
       this.holes.push({ ...this.digSpot(p), t: this.t, found: chest.rarity });
-      this.pushEvent({ kind: 'chest', who: p.name, rarity: chest.rarity, loot: chest.loot });
+      this.pushEvent({ kind: 'chest', who: p.name, rarity: chest.rarity, loot, streak: p.streak });
       this.spawnChest();
-      const result = { ok: true, found: true, rarity: chest.rarity, loot: chest.loot, portfolioValue: this.portfolioValue(p) };
+      const result = { ok: true, found: true, rarity: chest.rarity, loot, streak: p.streak, multiplier, portfolioValue: this.portfolioValue(p) };
       if (chest.rarity === 'legendary' && this.prizes) {
         resolve(this.prizes.award(p).then((prize) => {
           if (prize.won) this.pushEvent({ kind: 'prize', who: p.name, ticker: prize.prize.ticker, amount: prize.prize.amountTokens });
@@ -308,9 +326,17 @@ export class Game {
         }).catch(() => ({ ...result, realPrize: { won: false, reason: 'prize service error, try again later' } })));
       } else resolve(result);
     } else {
+      const lostStreak = p.streak;
+      p.streak = 0;
       p.anim = 'idle';
-      this.holes.push({ ...this.digSpot(p), t: this.t, found: null });
-      resolve({ ok: true, found: false, hint: 'nothing here. use detect and follow the bars up' });
+      const beaten = target && !this.chests.some((c) => c.id === target);
+      const junk = !beaten && this.rnd() < JUNK_CHANCE ? Object.keys(JUNK)[Math.floor(this.rnd() * Object.keys(JUNK).length)] : null;
+      this.holes.push({ ...this.digSpot(p), t: this.t, found: null, junk });
+      if (junk) { p.emote = 'sad'; p.emoteT = 2; this.pushEvent({ kind: 'junk', who: p.name, junk, label: JUNK[junk] }); }
+      resolve({
+        ok: true, found: false, junk, junkLabel: junk ? JUNK[junk] : null, beaten: !!beaten, lostStreak,
+        hint: beaten ? 'someone dug that chest up first!' : junk ? `you dug up ${JUNK[junk]}. use detect and follow the bars up` : 'nothing here. use detect and follow the bars up',
+      });
     }
   }
 
@@ -318,8 +344,8 @@ export class Game {
   snapshot() {
     return {
       t: round(this.t, 2),
-      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars, p.detect.t ? round(this.t - p.detect.t, 1) : null, p.dig ? round(1 - p.dig.t / DIG_TIME, 2) : null]),
-      holes: this.holes.map((h) => [round(h.x), round(h.z), h.found, round(this.t - h.t, 1)]),
+      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars, p.detect.at !== null ? round(this.t - p.detect.at, 1) : null, p.dig ? round(1 - p.dig.t / DIG_TIME, 2) : null]),
+      holes: this.holes.map((h) => [round(h.x), round(h.z), h.found, round(this.t - h.t, 1), h.junk ?? null]),
       market: this.market.map((s) => [s.ticker, round(s.price), round(((s.price - s.open) / s.open) * 100, 1)]),
       events: this.events.slice(-6),
     };

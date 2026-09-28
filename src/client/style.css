@@ -22,6 +22,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 .portfolio { left: 14px; top: 130px; width: 190px; }
 .portfolio .value { font-size: 26px; font-weight: 700; }
 .holdings { font-size: 12px; opacity: 0.75; line-height: 1.4; }
+.streak { display: inline-block; margin-top: 6px; background: var(--gold); color: var(--ink); font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; letter-spacing: 0.04em; }
 .board { right: 14px; top: 14px; width: 210px; }
 .board ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.55; }
 .board li span { float: right; font-weight: 700; }

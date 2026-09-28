@@ -10,6 +10,7 @@ import { height, pathDist } from '../src/shared/world.js';
 import { makeNoise } from '../src/shared/noise.js';
 
 const TIERS = process.argv.includes('--tiers');
+const MECH = process.argv.includes('--mechanics');
 const PORT = 5297, wait = (ms) => new Promise((r) => setTimeout(r, ms));
 execFileSync('npx', ['vite', 'build'], { stdio: 'ignore' });
 const store = openDb(':memory:');
@@ -40,7 +41,53 @@ await wait(2500);
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
 
-if (TIERS) {
+if (MECH) {
+  // count the human's detector readings on the server
+  let detects = 0;
+  const act0 = srv.game.act.bind(srv.game);
+  srv.game.act = (id, action, args) => { if (id === me.id && action === 'detect') detects++; return act0(id, action, args); };
+  srv.game.chests = srv.game.chests.filter((c) => Math.hypot(c.x - me.x, c.z - me.z) > 20);
+  await page.keyboard.down('Space');
+  await wait(1600);
+  const during = detects;
+  await page.keyboard.up('Space');
+  await wait(1000);
+  check(during >= 4, `holding Space keeps scanning (${during} readings in 1.6s)`);
+  check(detects - during <= 1, `releasing Space stops scanning (${detects - during} after release)`);
+
+  // empty dig: force junk
+  const rnd0 = srv.game.rnd;
+  srv.game.rnd = () => 0.1;
+  await page.keyboard.press('KeyE');
+  await wait(2100);
+  srv.game.rnd = rnd0;
+  const junk = await page.evaluate(() => ({ junks: window.__dbi.fx.junks.length, hint: document.getElementById('detector-hint').textContent }));
+  check(junk.junks > 0, 'junk pops out of the hole'); check(/dug up/.test(junk.hint), `junk hint (${junk.hint})`);
+  await page.screenshot({ path: 'evidence/mech-1-junk.png' });
+
+  // streak: two finds in a row
+  for (const rarity of ['common', 'legendary']) {
+    await wait(2500);
+    me.x += 3; me.y = height(me.x, me.z);
+    await wait(300);
+    srv.game.chests.push({ id: `m-${rarity}`, x: me.x + Math.sin(me.heading) * 0.6, z: me.z + Math.cos(me.heading) * 0.6, rarity, loot: { MOON: 40 } });
+    await page.keyboard.press('KeyE');
+    if (rarity === 'legendary') {
+      await wait(1800 + 900); // dig, then mid-shake
+      const shake = await page.evaluate(() => { const r = window.__dbi.fx.reveals.at(-1); return r ? { rot: Math.abs(r.g.rotation.z) + Math.abs(r.g.rotation.x), seam: r.seam.material.opacity, open: r.lid.rotation.x } : null; });
+      check(shake && shake.rot > 0.001 && shake.seam > 0.2 && shake.open === 0, `chest shakes and glows before opening (${JSON.stringify(shake)})`);
+      await page.screenshot({ path: 'evidence/mech-2-shake.png' });
+      const maxShake = await page.evaluate(() => new Promise((res) => { let m = 0; const t0 = performance.now(); const f = () => { m = Math.max(m, window.__dbi.fx.shake); if (performance.now() - t0 < 1500) requestAnimationFrame(f); else res(m); }; f(); }));
+      check(maxShake > 0.3, `legendary shakes the camera (${maxShake.toFixed(2)})`);
+      await page.screenshot({ path: 'evidence/mech-3-open.png' });
+    } else await wait(2000);
+  }
+  await wait(800);
+  const streak = await page.evaluate(() => ({ hidden: document.getElementById('streak').hidden, text: document.getElementById('streak').textContent }));
+  check(!streak.hidden && /x1\.5/.test(streak.text), `streak badge (${JSON.stringify(streak)})`);
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', 'evidence/mech-1-junk.png', '-i', 'evidence/mech-2-shake.png', '-i', 'evidence/mech-3-open.png', '-filter_complex', '[0][1][2]hstack=3,scale=1800:-1', 'evidence/mechanics-strip.png']);
+  console.log(`detects=${during}/${detects} junk=${JSON.stringify(junk)} streak=${JSON.stringify(streak)}`);
+} else if (TIERS) {
   const start = await page.evaluate(() => window.__dbi.view.info());
   check(start.tier === 'high' && start.shadows && start.post, `starts on high tier (${JSON.stringify(start)})`);
   // make the device "slow": throttle the CPU hard and wait for the automatic step-down
@@ -95,5 +142,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-console.log(problems.length ? `${TIERS ? 'TIERS' : 'VISUALS'} FAILED` : `${TIERS ? 'TIERS' : 'VISUALS'} OK`);
+const label = MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

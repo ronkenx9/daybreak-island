@@ -104,3 +104,15 @@ Target: sun shadows, dense wind-blown grass and props, forest clumps, finishing 
 
 - [ ] G19: (manual) side-by-side before/after screenshot against the reference video frame; the owner judges.
   EVIDENCE: evidence/before-after.png (before | now | reference frame); awaiting owner judgement
+
+## Slice 5: gameplay feel (detector, digging, rewards)
+
+- [x] G20: Server mechanics: detector readings are rate-limited per player (fast repeat calls get the last reading, not an error); digging where there is no chest can turn up funny junk; consecutive finds build a streak that multiplies made-up loot (not real prizes) and a miss resets it; if someone else digs your chest first you're told.
+  CHECK: node test/mechanics.mjs
+  EXPECT: MECHANICS OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=2fd5911b478b6ba754fe058673c796554cc55c3cb75ade33effbc02f18fe7f5c; exit=0; EXPECT=matched; output-sha256=17130a2de3eaf926a84bced7428823b756abf7af062f223848e3b14cbd3c26b9; output-bytes=382; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G21: In the browser: holding Space sweeps the detector continuously (several readings and pulses, faster beeps when close) and releasing stops it; an empty dig pops a junk item out of the hole; a chest shakes and glows its rarity colour before it opens, and a legendary shakes the camera; the streak shows in the HUD.
+  CHECK: node scripts/check-visuals.mjs --mechanics
+  EXPECT: MECHANICS UI OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=eed0675d183d355a54814b10135d45ad511456779dbbfbc0dee2533567945f81; exit=0; EXPECT=matched; output-sha256=f6bc5bb00f3c404bfa3ec109375059aa98c954214144a58b38637a778545a514; output-bytes=128; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

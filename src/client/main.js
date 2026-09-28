@@ -84,14 +84,18 @@ function hud(s) {
     if (e.t <= lastEvent) continue;
     lastEvent = e.t;
     const div = document.createElement('div');
-    if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}`; }
+    let delay = 0;
+    if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}${e.streak > 1 ? ` (streak ${e.streak})` : ''}`; delay = 1350; }
+    else if (e.kind === 'junk') div.textContent = `${e.who} dug up ${e.label}`;
     else if (e.kind === 'join') div.textContent = `${e.who} arrived`;
-    else if (e.kind === 'prize') { div.className = 'prize'; div.textContent = `${e.who} won ${e.amount} real $${e.ticker}!`; }
-    else if (e.kind === 'say') continue;
+    else if (e.kind === 'prize') { div.className = 'prize'; div.textContent = `${e.who} won ${e.amount} real $${e.ticker}!`; delay = 1350; }
     else continue;
-    $('feed').appendChild(div);
-    while ($('feed').children.length > 5) $('feed').firstChild.remove();
-    setTimeout(() => div.remove(), 9000);
+    // chest news waits for the chest to finish shaking, so the feed doesn't spoil it
+    setTimeout(() => {
+      $('feed').appendChild(div);
+      while ($('feed').children.length > 5) $('feed').firstChild.remove();
+      setTimeout(() => div.remove(), 9000);
+    }, delay);
   }
 }
 async function refreshBoard() {
@@ -118,12 +122,13 @@ addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   keys.add(e.code);
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
-  if (e.code === 'Space') { e.preventDefault(); scan(); }
+  if (e.code === 'Space') { e.preventDefault(); startSweep(); }
   if (e.code === 'KeyE' || e.code === 'KeyF') dig();
   if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); }
   if (e.code.startsWith('Digit')) { const em = ['wave', 'cheer', 'dance', 'sad', 'shrug'][Number(e.code.slice(5)) - 1]; if (em) act('emote', { name: em }); }
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'Space') stopSweep(); });
+addEventListener('blur', () => { keys.clear(); stopSweep(); });
 function sendMove() {
   if (!me) return;
   const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
@@ -131,19 +136,39 @@ function sendMove() {
   const k = `${dx},${dz}`;
   if (k !== lastMove) { lastMove = k; act('move', { dx, dz }); }
 }
+// hold Space: the detector keeps sweeping and beeping, faster and higher as you close in
+let sweeping = false, sweepTimer = null;
+function startSweep() {
+  if (sweeping) return;
+  sweeping = true;
+  const tick = async () => {
+    const r = await scan();
+    if (sweeping) sweepTimer = setTimeout(tick, r && r.bars >= 4 ? 260 : 380);
+  };
+  tick();
+}
+function stopSweep() { sweeping = false; clearTimeout(sweepTimer); }
 async function scan() {
   const r = await act('detect');
-  if (!r?.ok) return;
+  if (!r?.ok) return null;
   $('detector').dataset.bars = r.bars;
   $('detector-hint').textContent = r.hint;
-  beep(r.bars);
+  if (!r.cached) beep(r.bars);
+  return r;
 }
 async function dig() {
   $('detector-hint').textContent = 'digging...';
   const r = await act('dig');
   if (!r?.ok) { $('detector-hint').textContent = r?.error ?? 'busy'; return; }
-  $('detector-hint').textContent = r.found ? `found a ${r.rarity} chest!` : 'nothing here';
-  if (r.found) chime();
+  if (r.found) {
+    // let the chest shake before telling you what it is
+    $('detector-hint').textContent = 'something is in here...';
+    setTimeout(() => { $('detector-hint').textContent = `found a ${r.rarity} chest!${r.multiplier > 1 ? ` streak x${r.multiplier}` : ''}`; chime(); showStreak(r.streak, r.multiplier); }, 1350);
+  } else {
+    $('detector-hint').textContent = r.hint.split('. use')[0];
+    if (r.junk) sadTrombone();
+    showStreak(0, 1);
+  }
   if (r.realPrize?.won) showWin(r.realPrize.prize);
   else if (r.realPrize && prizeMode !== 'off') $('prize-sub').textContent = r.realPrize.reason;
 }
@@ -244,7 +269,14 @@ const tone = (f, d, v = 0.15, type = 'square') => {
   g.gain.setValueAtTime(v, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + d);
   o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + d);
 };
-const beep = (b) => { for (let i = 0; i < Math.max(1, b); i++) setTimeout(() => tone(500 + b * 140, 0.08, 0.06), i * 110); };
+// one reading = a quick blip; closer = higher pitch and a double/triple blip ("de de de")
+const beep = (b) => { const n = b >= 5 ? 3 : b >= 4 ? 2 : 1; for (let i = 0; i < n; i++) setTimeout(() => tone(b ? 420 + b * 150 : 260, 0.07, b ? 0.07 : 0.03), i * 75); };
+const sadTrombone = () => [392, 370, 349, 311].forEach((f, i) => setTimeout(() => tone(f, i === 3 ? 0.5 : 0.22, 0.08, 'sawtooth'), i * 230));
+function showStreak(streak, mult) {
+  const el = $('streak');
+  el.hidden = streak < 2;
+  el.textContent = `STREAK ${streak} · x${mult}`;
+}
 const chime = () => [660, 880, 1320].forEach((f, i) => setTimeout(() => tone(f, 0.3, 0.12, 'triangle'), i * 90));
 
 // ---------------------------------------------------------------- splash
@@ -304,6 +336,7 @@ function frame() {
     camLook.lerp(v.set(fx1, fy + 0.6, fz1), 1 - Math.exp(-dt * 5));
   }
   camera.position.copy(camPos);
+  if (fx.shake > 0.01) camera.position.add(v.set((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake));
   camera.lookAt(camLook);
   focusV.set(camLook.x, fy, camLook.z);
   island.update(now / 1000, focusV);
