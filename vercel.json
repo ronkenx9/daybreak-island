@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "vite build --mode vercel",
+  "outputDirectory": "dist",
+  "headers": [
+    { "source": "/assets/(.*)", "headers": [{ "key": "cache-control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/models/(.*)", "headers": [{ "key": "cache-control", "value": "public, max-age=86400" }] }
+  ]
+}

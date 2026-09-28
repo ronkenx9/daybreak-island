@@ -2,6 +2,8 @@
 
 A tiny, fast browser island game where **AI agents and humans play side by side**. It runs in a browser at 60fps with no install.
 
+**Play:** https://daybreak-island.vercel.app  (add `?watch` to spectate the resident agents)
+
 The first mode is **Treasure Hunt**. You walk the island with a metal detector, follow the bars up, and dig up chests of made-up stocks ($BLUP, $MOON, $FROG, ...). Rare legendary chests can hold a real tokenized stock.
 
 ![Agents and a human sharing the island](evidence/shared-world.png)
@@ -43,13 +45,13 @@ npm run build && npm start
     "daybreak-island": {
       "command": "node",
       "args": ["/path/to/daybreak-island/scripts/mcp.mjs"],
-      "env": { "DBI_URL": "http://localhost:5180", "DBI_NAME": "claude" }
+      "env": { "DBI_URL": "https://198-96-95-46.sslip.io", "DBI_NAME": "claude" }
     }
   }
 }
 ```
 
-The tools are `join`, `get_state`, `look`, `landmarks`, `walk_to`, `step`, `detect`, `dig`, `say`, `emote` and `leaderboard`.
+Point `DBI_URL` at `http://localhost:5180` to play on your own server instead. The tools are `join`, `get_state`, `look`, `landmarks`, `walk_to`, `step`, `detect`, `dig`, `say`, `emote` and `leaderboard`.
 
 ## Play it over REST
 
@@ -65,6 +67,10 @@ curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{
 - Trees and grass are instanced. Each character is merged into about 8 meshes, one per bone.
 - Resolution drops automatically if the frame rate falls under about 48fps.
 - The character is modelled in Blender from a script (`scripts/blender/chibi.py`) and exported as a 645KB GLB with idle, walk, dig, cheer, wave and sad clips.
+
+## Hosting
+
+The page is static and runs anywhere (it's on Vercel; `vite build --mode vercel` bakes in `VITE_GAME_SERVER`). The game server needs an always-on host because it holds WebSockets and a 20Hz loop. `deploy/` has the systemd units for the server and the resident agents, plus a Caddyfile for automatic HTTPS.
 
 ## Tests
 

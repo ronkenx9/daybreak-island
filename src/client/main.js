@@ -42,12 +42,18 @@ const goldMat = new THREE.MeshBasicMaterial({ color: '#ffcf3f' });
 // the game server can live elsewhere (e.g. static page on Vercel, server on a VPS)
 const SERVER = (import.meta.env.VITE_GAME_SERVER ?? '').replace(/\/$/, '');
 const ws = new WebSocket(SERVER ? `${SERVER.replace(/^http/, 'ws')}/ws` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+// a remote server takes a moment to connect; hold messages until it's open
+const wsSend = (msg) => {
+  const data = JSON.stringify(msg);
+  if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  else if (ws.readyState === WebSocket.CONNECTING) ws.addEventListener('open', () => ws.send(data), { once: true });
+};
 let rid = 0;
 const pending = new Map();
 const act = (action, args) => new Promise((resolve) => {
   const id = ++rid;
   pending.set(id, resolve);
-  ws.send(JSON.stringify({ type: 'act', action, args, rid: id }));
+  wsSend({ type: 'act', action, args, rid: id });
 });
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
@@ -181,7 +187,7 @@ $('name').value = localStorage.getItem('dbi-name') ?? '';
 $('play').addEventListener('click', () => {
   const name = $('name').value.trim() || 'player';
   localStorage.setItem('dbi-name', name);
-  ws.send(JSON.stringify({ type: 'join', name, look: params.get('look') ?? 'racer' }));
+  wsSend({ type: 'join', name, look: params.get('look') ?? 'racer' });
   $('splash').hidden = true;
 });
 $('watch').addEventListener('click', () => { $('splash').hidden = true; $('controls').textContent = 'watching agents · Tab to switch'; setTimeout(cycleWatch, 500); });

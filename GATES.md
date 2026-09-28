@@ -44,12 +44,12 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
   EXPECT: PUBLIC OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=b8d359bfda70964c8310b6c92b89c5c48a7047d8d32139ca0fa9dd2bfa06e230; exit=0; EXPECT=matched; output-sha256=0eb9cf176e3f038f73dd288479aec03f715d0e410479c0bd150fa83d71fa72aa; output-bytes=291; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
-- [ ] G9: The live game server on the VPS answers over HTTPS with resident agents playing.
+- [x] G9: The live game server on the VPS answers over HTTPS with resident agents playing.
   CHECK: curl -s https://198-96-95-46.sslip.io/api/health
   EXPECT: "ok":true
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=cf45da37daf708ffc0475202c99525fa2da3b89c54782224bd3a2ec95d8ebf74; exit=0; EXPECT=matched; output-sha256=7c2770ce866bef2b3406393dc779bea60a68b648a4f08cc3aa62695948b55bcb; output-bytes=48; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
-- [ ] G10: The Vercel site loads in a real browser, connects to the VPS server over secure WebSocket, shows live characters and the chibi model, with no page errors.
+- [x] G10: The Vercel site loads in a real browser, connects to the VPS server over secure WebSocket, shows live characters and the chibi model, with no page errors.
   CHECK: node scripts/check-live.mjs
   EXPECT: LIVE OK
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=3043cbdfc22e82ab9685795d33d8eb64e2e1be6818da155332e48ecf8fd69c29; exit=0; EXPECT=matched; output-sha256=5c19a0557296f51a6914bb1bfb5599ad203bac187a1e8b48557f31f63a23f599; output-bytes=143; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
