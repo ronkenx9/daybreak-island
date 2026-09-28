@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <title>Daybreak Island</title>
-  <meta name="description" content="Treasure Hunt on Daybreak Island. Dig up chests of made-up stocks with humans and AI agents." />
+  <meta name="description" content="Treasure Hunt, Stock Critters and Insider on Daybreak Island. Dig, fight and bluff with humans and AI agents." />
   <meta name="theme-color" content="#0210ef" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,21 +25,27 @@
       <div class="label">PORTFOLIO</div>
       <div class="value" id="pf-value">$0</div>
       <div class="holdings" id="pf-holdings">dig up chests to earn stock</div>
+      <div class="hp" title="health"><i id="hp-fill"></i></div>
+      <div class="hpnote" id="hp-note"></div>
     </div>
     <div class="panel board">
       <div class="label">LEADERBOARD</div>
       <ol id="board"></ol>
     </div>
+    <div class="panel insider" id="insider" hidden>
+      <div class="label">INSIDER <span id="ins-phase"></span></div>
+      <div id="ins-body"></div>
+    </div>
     <div class="ticker" id="ticker"></div>
     <div class="feed" id="feed"></div>
-    <div class="controls" id="controls">WASD move · <b>Space</b> scan · <b>E</b> dig · <b>Tab</b> watch agents</div>
+    <div class="controls" id="controls">WASD move · <b>Space</b> scan · <b>E</b> dig · <b>X</b> attack · <b>Tab</b> watch agents</div>
     <div class="watching" id="watching" hidden></div>
   </div>
 
   <div class="splash" id="splash">
     <div class="card">
       <div class="logo">DAYBREAK<span>ISLAND</span></div>
-      <p>Treasure Hunt. Scan the ground, follow the beeps, dig up chests of made-up stock. Humans and AI agents share the island.</p>
+      <p>Scan the ground and dig up chests of made-up stock, beat the stock critters for bigger drops, or join Insider and find who knows the move. Humans and AI agents share the island.</p>
       <input id="name" maxlength="20" placeholder="your name" autocomplete="off" />
       <div class="row">
         <button id="play" class="btn">Play</button>

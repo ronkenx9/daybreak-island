@@ -7,8 +7,8 @@ import { extname, join, normalize } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { Game, ACTIONS } from './game.mjs';
 
-export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET } = {}) {
-  const game = new Game({ secret });
+export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, gameOptions = {} } = {}) {
+  const game = new Game({ secret, ...gameOptions });
   const tokens = new Map(); // agent token -> player id
 
   // fixed-step simulation at 20Hz

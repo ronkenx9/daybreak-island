@@ -10,6 +10,7 @@
     "start": "NODE_ENV=production node server/index.mjs",
     "test": "node test/run.mjs",
     "sim": "node scripts/sim.mjs",
+    "sim:modes": "node scripts/sim-modes.mjs",
     "mcp": "node scripts/mcp.mjs"
   },
   "dependencies": {

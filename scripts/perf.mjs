@@ -12,7 +12,7 @@ const srv = startServer({ port: 5292, prod: true, vite: false, secret: 'perf' })
 const bots = [...Array(8)].map((_, i) => srv.game.join({ name: `agent-${i}`, kind: 'agent' }));
 const roam = setInterval(() => { for (const b of bots) if (!b.path) srv.game.act(b.id, 'walk_to', { target: { x: b.x + (Math.random() - 0.5) * 40, z: b.z + (Math.random() - 0.5) * 40 }, wait: false }); }, 1500);
 
-const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
+const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: process.env.CHROME_PATH ? ['--no-sandbox', '--ignore-gpu-blocklist', '--mute-audio', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
 const errs = [];

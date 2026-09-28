@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Game } from '../server/game.mjs';
+import { Game, REAL_DROPS } from '../server/game.mjs';
 import { findPath, groundAt, canStep, SPAWN, MESAS, isLand, grid, GRID, MAX_RISE, toCell, toWorld } from '../src/shared/world.js';
 
 let n = 0;
@@ -15,7 +15,7 @@ await test('spawn is on land and paths reach every mesa foot', () => {
 });
 
 await test('a walker following a path arrives', async () => {
-  const g = new Game({ secret: 't1' });
+  const g = new Game({ secret: 't1', critters: false });
   const p = g.join({ name: 'walker' });
   const m = MESAS[2];
   const pr = g.act(p.id, 'walk_to', { target: 'NFLX' });
@@ -112,6 +112,180 @@ await test('a walker on the wet shoreline can still path inland', () => {
     assert.ok(isLand(x, z), `(${x},${z}) is land`);
     assert.ok(findPath(x, z, SPAWN.x, SPAWN.z), `path inland from (${x},${z})`);
   }
+});
+
+
+// ---------------------------------------------------------------- Stock Critters
+const withCritter = (kind = 'grunt', seed = 'k1') => {
+  const g = new Game({ secret: seed });
+  const p = g.join({ name: 'fighter' });
+  const c = g.critters.list.find((k) => k.kind === kind);
+  p.x = c.x + 2; p.z = c.z; p.y = 0;
+  return { g, p, c };
+};
+
+await test('critters spawn away from the safe zone and never enter it', () => {
+  const g = new Game({ secret: 'k0' });
+  assert.equal(g.critters.list.filter((c) => c.kind === 'boss').length, 1);
+  assert.equal(g.critters.list.filter((c) => c.kind === 'grunt').length, 4);
+  const p = g.join({ name: 'camper' }); // stands at spawn
+  run(g, 120);
+  for (const c of g.critters.list) assert.ok(Math.hypot(c.x - SPAWN.x, c.z - SPAWN.z) >= 18, `${c.name} entered the safe zone`);
+  assert.equal(p.hp, 100, 'nothing can hurt you at spawn');
+});
+
+await test('attack needs range and stays out of the safe zone; damage is recorded', () => {
+  const { g, p, c } = withCritter();
+  const far = g.join({ name: 'far' });
+  assert.equal(g.act(far.id, 'attack').ok, false);
+  assert.match(g.act(far.id, 'attack').error, /no critter|safe zone/);
+  const r = g.act(p.id, 'attack');
+  assert.equal(r.ok, true);
+  assert.ok(r.damage >= 10 && r.damage <= 16);
+  assert.equal(c.hp, c.maxHp - r.damage);
+  assert.equal(g.act(p.id, 'attack').error, 'cooldown');
+  const list = g.act(p.id, 'critters');
+  assert.ok(list.critters.length === 5 && list.critters[0].distance <= list.critters[1].distance);
+});
+
+await test('killing a critter splits its stock by damage, respawns it later, boss can drop real stock', async () => {
+  const { g, p, c } = withCritter('grunt', 'k2');
+  const helper = g.join({ name: 'helper' });
+  helper.x = c.x - 2; helper.z = c.z;
+  g.critters.list.forEach((k) => { if (k !== c) k.hp = k.maxHp; });
+  c.hp = 30;
+  c.hitBy.set(helper.id, 10);
+  let res = null;
+  for (let i = 0; i < 5 && !res?.defeated; i++) { res = g.act(p.id, 'attack'); run(g, 0.8); }
+  assert.equal(res.defeated, true, JSON.stringify(res));
+  assert.ok(p.portfolio[c.ticker] > 0 && helper.portfolio[c.ticker] > 0, 'both contributors get a share');
+  assert.ok(p.portfolio[c.ticker] > helper.portfolio[c.ticker], 'bigger damage, bigger share');
+  assert.equal(p.kills, 1);
+  assert.equal(g.critters.list.filter((k) => k.kind === 'grunt').length, 3);
+  run(g, 16);
+  assert.equal(g.critters.list.filter((k) => k.kind === 'grunt').length, 4, 'grunt respawned');
+  // boss with a guaranteed real drop
+  const b = g.critters.list.find((k) => k.kind === 'boss');
+  p.x = b.x + 2; p.z = b.z; b.hp = 1; g.rnd = () => 0.0001;
+  const kill = g.act(p.id, 'attack');
+  assert.ok(kill.defeated && kill.realDrop, JSON.stringify(kill));
+  assert.ok(Object.keys(p.portfolio).some((t) => REAL_DROPS.includes(t)));
+});
+
+await test('a critter winds up before hitting, so walking away dodges; getting hit hard knocks you out to spawn', () => {
+  const { g, p, c } = withCritter('boss', 'k3');
+  p.x = c.x + 5; p.z = c.z;
+  // dodge: keep stepping out of reach while it winds up
+  let windups = 0, hit = false;
+  for (let i = 0; i < 20 * 6; i++) {
+    g.tick(0.05);
+    if (c.windup > 0) { windups++; p.x = c.x + 12; p.z = c.z; p.y = groundAt(p.x, p.z); }
+    if (p.hp < 100) hit = true;
+  }
+  assert.ok(windups > 0, 'boss telegraphed a swing');
+  assert.equal(hit, false, 'stepping out of reach during the windup dodged every swing');
+  // stand still and take it: 100hp / 18 = 6 swings
+  const q = g.join({ name: 'punching-bag' });
+  q.x = c.x + 1; q.z = c.z;
+  for (let i = 0; i < 20 * 20 && q.ko <= 0; i++) g.tick(0.05);
+  assert.ok(q.ko > 0, 'knocked out');
+  assert.ok(Math.hypot(q.x - SPAWN.x, q.z - SPAWN.z) < 6, 'sent back to spawn');
+  assert.equal(g.act(q.id, 'attack').ok, false);
+  run(g, 5);
+  assert.equal(q.hp, 100);
+  assert.equal(q.ko, 0);
+});
+
+// ---------------------------------------------------------------- Insider
+const cfg = { min: 4, lobby: 3, trade: 20, vote: 10, reveal: 4 };
+const room = (n = 4, seed = 'i1') => {
+  const g = new Game({ secret: seed, insider: cfg, critters: false });
+  const ps = [...Array(n)].map((_, i) => g.join({ name: `t${i}` }));
+  ps.forEach((p) => g.act(p.id, 'insider_join'));
+  run(g, 4);
+  return { g, ps };
+};
+
+await test('insider lobby waits for enough players, then deals exactly one insider who alone knows the move', () => {
+  const g = new Game({ secret: 'i0', insider: cfg, critters: false });
+  const ps = [...Array(4)].map((_, i) => g.join({ name: `t${i}` }));
+  ps.slice(0, 3).forEach((p) => g.act(p.id, 'insider_join'));
+  run(g, 10);
+  assert.equal(g.insider.phase, 'lobby', 'three players is not enough');
+  g.act(ps[3].id, 'insider_join');
+  run(g, 4);
+  assert.equal(g.insider.phase, 'trading');
+  const views = ps.map((p) => g.act(p.id, 'insider_status'));
+  assert.equal(views.filter((v) => v.role === 'insider').length, 1);
+  assert.equal(views.filter((v) => v.move).length, 1, 'only the insider sees the move');
+  assert.ok(views.every((v) => v.cash === 1000));
+  assert.ok(!JSON.stringify(g.snapshot().insider).includes(g.insider.round.move + '":'), 'public view has no role info');
+  assert.ok(!('insider' in g.snapshot().insider) && !('move' in g.snapshot().insider));
+});
+
+await test('trading moves price, shows on the tape, respects cash and holdings', () => {
+  const { g, ps } = room();
+  const [a] = ps;
+  const before = g.act(a.id, 'insider_status').prices.find((x) => x.ticker === 'BLUP').price;
+  const buy = g.act(a.id, 'insider_trade', { ticker: '$blup', side: 'buy', shares: 50 });
+  assert.ok(buy.ok && buy.shares === 50 && buy.newPrice > before, JSON.stringify(buy));
+  assert.ok(g.act(ps[1].id, 'insider_status').tape.some((e) => e.who === a.name && e.ticker === 'BLUP'), 'everyone sees the tape');
+  let last;
+  for (let i = 0; i < 30; i++) { last = g.act(a.id, 'insider_trade', { ticker: 'WAGMI', side: 'buy', shares: 100000 }); if (!last.ok) break; assert.ok(last.shares <= 100, 'per-trade cap'); }
+  assert.equal(last.ok, false, 'eventually out of cash');
+  assert.ok(g.act(a.id, 'insider_status').cash >= 0);
+  assert.equal(g.act(a.id, 'insider_trade', { ticker: 'MOON', side: 'sell', shares: 1 }).ok, false, 'nothing to sell');
+  assert.equal(g.act(a.id, 'insider_trade', { ticker: 'NOPE', side: 'buy', shares: 1 }).ok, false);
+  assert.equal(g.act(a.id, 'insider_accuse', { name: 't1' }).ok, false, 'no voting while trading');
+});
+
+const toVoting = (g) => { run(g, 21); assert.equal(g.insider.phase, 'voting'); };
+
+await test('catching the insider: traders win and are paid in the pumped stock', () => {
+  const { g, ps } = room(4, 'i2');
+  const ins = g.insider.round.insider, move = g.insider.round.move;
+  toVoting(g);
+  assert.equal(g.act(ps[0].id, 'insider_trade', { ticker: 'BLUP', side: 'buy', shares: 1 }).ok, false, 'trading closed');
+  for (const p of ps) if (p.id !== ins) assert.ok(g.act(p.id, 'insider_accuse', { name: g.players.get(ins).name }).ok);
+  assert.equal(g.act(ins, 'insider_accuse', { name: g.players.get(ins).name }).ok, false, 'no self accusation');
+  assert.ok(g.act(ins, 'insider_accuse', { name: ps.find((p) => p.id !== ins).name }).ok);
+  run(g, 0.1); // everyone voted -> resolves without waiting out the clock
+  assert.equal(g.insider.phase, 'reveal');
+  const r = g.insider.last;
+  assert.equal(r.winners, 'traders'); assert.equal(r.caught, true); assert.equal(r.insider, g.players.get(ins).name);
+  for (const p of ps) assert.equal(p.portfolio[move] ?? 0, p.id === ins ? 0 : 40);
+  assert.equal(g.players.get(ins).insiderStats.wins, 0);
+  run(g, 5);
+  assert.equal(g.insider.phase, 'lobby');
+  assert.ok(g.insider.members.size === 4, 'players stay opted in for the next round');
+});
+
+await test('missing the insider (or tying) means the insider wins, and profits from the pump', () => {
+  const { g, ps } = room(4, 'i3');
+  const ins = g.insider.round.insider, move = g.insider.round.move;
+  g.act(ins, 'insider_trade', { ticker: move, side: 'buy', shares: 100 });
+  toVoting(g);
+  const other = ps.filter((p) => p.id !== ins);
+  // 1-1 split: a tie catches nobody
+  g.act(other[0].id, 'insider_accuse', { name: other[1].name });
+  g.act(other[1].id, 'insider_accuse', { name: g.players.get(ins).name });
+  run(g, 11);
+  const r = g.insider.last;
+  assert.equal(r.winners, 'insider'); assert.equal(r.accused, null);
+  assert.equal(g.players.get(ins).portfolio[move], 100);
+  assert.equal(r.results[0].role, 'insider', 'top profit is the insider');
+  assert.ok(r.results[0].profit > 0);
+  assert.equal(g.leaderboard().find((x) => x.name === g.players.get(ins).name).insiderWins, 1);
+});
+
+await test('the round aborts cleanly if the insider leaves or too many drop out', () => {
+  const { g, ps } = room(4, 'i4');
+  g.leave(g.insider.round.insider);
+  assert.equal(g.insider.phase, 'reveal'); assert.equal(g.insider.last.aborted, true);
+  run(g, 5);
+  assert.equal(g.insider.phase, 'lobby');
+  assert.equal(g.insider.members.size, 3);
+  assert.equal(g.act(ps.find((p) => g.players.has(p.id)).id, 'insider_status').joined, true);
 });
 
 console.log(`${n} tests\nALL TESTS PASSED`);

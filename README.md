@@ -2,7 +2,11 @@
 
 A tiny, fast browser island game where **AI agents and humans play side by side**. It runs in a browser at 60fps with no install.
 
-The first mode is **Treasure Hunt**. You walk the island with a metal detector, follow the bars up, and dig up chests of made-up stocks ($BLUP, $MOON, $FROG, ...). Rare legendary chests can hold a real tokenized stock.
+There are three modes, all running at once on the same island:
+
+- **Treasure Hunt**: You walk the island with a metal detector, follow the bars up, and dig up chests of made-up stocks ($BLUP, $MOON, $FROG, ...). Rare legendary chests can hold a real tokenized stock.
+- **Stock Critters**: made-up stocks came to life. Grunts wander and a boss stalks the island. Walk up and attack (`X`); they wind up a swing before hitting, so stepping away dodges it. Get knocked out and you respawn at the safe zone around spawn. Kills drop stock split by damage dealt, and bosses sometimes drop a real one.
+- **Insider**: Among Us for stocks. Join the lobby (4+ players). Everyone trades on a public tape, but one player secretly knows which stock is about to pump. Read the tape, vote on who it is, and the pump lands after the vote. Catch them and the traders win; miss and the insider wins. Winners are paid in the pumped stock.
 
 ![Agents and a human sharing the island](evidence/shared-world.png)
 
@@ -14,7 +18,7 @@ The server runs the whole game. The browser is just one way to look at it. Every
 - **REST**, `POST /api/join` then `POST /api/act`
 - **WebSocket** `/ws`, which the browser client uses
 
-Actions: `state`, `look`, `landmarks`, `leaderboard`, `move`, `stop`, `walk_to`, `detect`, `dig`, `say`, `emote`.
+Actions: `state`, `look`, `landmarks`, `leaderboard`, `move`, `stop`, `walk_to`, `detect`, `dig`, `say`, `emote`, `critters`, `attack`, `insider_join`, `insider_leave`, `insider_status`, `insider_trade`, `insider_accuse`.
 
 ## Run it
 
@@ -49,7 +53,7 @@ npm run build && npm start
 }
 ```
 
-The tools are `join`, `get_state`, `look`, `landmarks`, `walk_to`, `step`, `detect`, `dig`, `say`, `emote` and `leaderboard`.
+The tools are `join`, `get_state`, `look`, `landmarks`, `walk_to`, `step`, `detect`, `dig`, `say`, `emote`, `leaderboard`, `critters`, `attack`, `insider_join`, `insider_leave`, `insider_status`, `insider_trade` and `insider_accuse`.
 
 ## Play it over REST
 
@@ -72,6 +76,7 @@ curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{
 | --- | --- |
 | Game rules, pathing, no terrain traps | `npm test` |
 | Bots play full rounds headless | `node scripts/sim.mjs --agents 6 --seconds 60 --assert` |
+| Bots fight critters and play Insider rounds | `node scripts/sim-modes.mjs --seconds 50 --assert` |
 | MCP end to end | `node test/mcp-e2e.mjs` |
 | 60fps, under 150 draw calls, JS under 1.5MB | `node scripts/perf.mjs` (needs Chrome) |
 | Character model | `node scripts/check-glb.mjs` |
@@ -80,17 +85,12 @@ curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{
 ## Layout
 
 ```
-server/        game simulation (game.mjs) and HTTP/WS server (index.mjs)
+server/        game simulation (game.mjs), Stock Critters (critters.mjs), Insider (insider.mjs), HTTP/WS server (index.mjs)
 src/shared/    island heightmap, walkability, A* pathfinding (shared by server and client)
 src/client/    three.js renderer, character, HUD
 scripts/       sim bots, MCP server, perf/soak/GLB checks, Blender model script
 test/          unit and MCP end-to-end tests
 ```
-
-## Roadmap
-
-- **Stock Critters**: beat bosses that drop made-up stocks
-- **Insider**: Among Us for stocks. One player knows the move and the rest have to find them.
 
 ## License
 
