@@ -52,4 +52,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 .btn { flex: 1; font: 700 16px var(--font); border: 0; border-radius: 12px; padding: 12px; cursor: pointer; background: var(--blue); color: #fff; box-shadow: 0 4px 0 #0008a3; }
 .btn.ghost { background: #efe7d6; color: var(--ink); box-shadow: 0 4px 0 #d8cdb4; }
 .foot { margin-top: 14px; font-size: 12px; opacity: 0.6; }
+
+.hp { height: 8px; border-radius: 6px; background: #ece4d2; margin-top: 8px; overflow: hidden; }
+.hp i { display: block; height: 100%; width: 100%; background: var(--green); transition: width 0.15s; }
+.hpnote { font-size: 11px; font-weight: 700; color: var(--red); min-height: 13px; }
+.crit { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); white-space: nowrap; text-align: center; will-change: transform; }
+.crit.boss { font-size: 13px; }
+.crit b { display: block; width: 54px; height: 6px; margin: 2px auto 0; border-radius: 4px; background: rgba(0,0,0,.45); overflow: hidden; }
+.crit b i { display: block; height: 100%; background: var(--red); }
+.crit.wind { color: #ffd0cb; }
+.insider { right: 14px; top: 262px; width: 230px; pointer-events: auto; font-size: 13px; }
+.insider .label span { float: right; color: var(--blue); opacity: 1; }
+.insider p { margin: 6px 0; line-height: 1.35; }
+.insider .role { font-weight: 700; }
+.insider .role.ins { color: var(--red); }
+.insider table { width: 100%; border-collapse: collapse; margin: 4px 0; }
+.insider td { padding: 2px 0; }
+.insider td:nth-child(2) { text-align: right; opacity: 0.8; padding-right: 6px; }
+.insider button { font: 700 12px var(--font); border: 0; border-radius: 8px; padding: 4px 8px; margin-left: 3px; cursor: pointer; background: var(--blue); color: #fff; }
+.insider button.sell { background: #d8cdb4; color: var(--ink); }
+.insider button.wide { display: block; width: 100%; margin: 5px 0 0; padding: 7px; font-size: 13px; }
+.insider button.picked { background: var(--red); }
+.insider .tape { font-size: 11px; opacity: 0.75; line-height: 1.4; }
+.insider .win { font-weight: 700; color: var(--green); }
+@media (max-width: 700px) { .insider { top: 14px; width: 190px; font-size: 12px; } }
 @media (max-width: 700px) { .board { display: none; } .ticker { top: auto; bottom: 56px; font-size: 11px; } .portfolio { top: 118px; width: 160px; } .detector { width: 160px; } .feed { width: 220px; bottom: 90px; } }

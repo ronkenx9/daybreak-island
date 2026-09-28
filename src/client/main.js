@@ -3,6 +3,8 @@ import { buildIsland } from './scene.js';
 import { makeCharacter } from './character.js';
 import { loadChibi, makeChibi } from './chibi.js';
 import { groundAt } from '../shared/world.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { toon } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -39,6 +41,17 @@ const holeGeo = new THREE.CircleGeometry(0.9, 14).rotateX(-Math.PI / 2);
 const holeMat = new THREE.MeshBasicMaterial({ color: '#5a4430' });
 const goldMat = new THREE.MeshBasicMaterial({ color: '#ffcf3f' });
 
+// stock critters: a toon blob per ticker colour, two merged eyes, one DOM tag with hp
+const critters = new Map(); // id -> { mesh, tag, bar, cur, ... }
+const CRIT_COLORS = { BLUP: '#4d8dff', MOON: '#ffd54a', FROG: '#54c96a', DIGG: '#c98a52', PUMP: '#ff6b57', WAGMI: '#b47cff' };
+const eyeGeo = (() => {
+  const parts = [-0.38, 0.38].flatMap((x) => [new THREE.SphereGeometry(0.3, 8, 6).translate(x, 0.35, 0.82), new THREE.SphereGeometry(0.14, 6, 4).translate(x, 0.35, 1.05)]);
+  parts.forEach((g, i) => { const c = new THREE.Color(i % 2 ? '#1c1a2e' : '#ffffff'), a = new Float32Array(g.attributes.position.count * 3); for (let k = 0; k < a.length; k += 3) a.set([c.r, c.g, c.b], k); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); });
+  return mergeGeometries(parts);
+})();
+const blobGeo = new THREE.SphereGeometry(1, 14, 10);
+const eyeMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+
 const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
 let rid = 0;
 const pending = new Map();
@@ -59,7 +72,7 @@ function onSnap(s) {
   if (chibi === 'loading') return; // wait for the model so nobody spawns as the stand-in
   snap = s;
   const seen = new Set();
-  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars] of s.players) {
+  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars, hp, ko] of s.players) {
     seen.add(id);
     let p = players.get(id);
     if (!p) {
@@ -70,9 +83,10 @@ function onSnap(s) {
       p = { ch, tag, bub, cur: { x, y, z, h }, name, kind };
       players.set(id, p);
     }
-    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars });
+    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars, hp, ko });
   }
   for (const [id, p] of players) if (!seen.has(id)) { scene.remove(p.ch.root); p.tag.remove(); p.bub.remove(); players.delete(id); }
+  syncCritters(s.critters ?? []);
   // holes
   while (holeMeshes.length < s.holes.length) { const m = new THREE.Mesh(holeGeo, holeMat); scene.add(m); holeMeshes.push(m); }
   holeMeshes.forEach((m, i) => {
@@ -81,6 +95,34 @@ function onSnap(s) {
     if (h) { m.position.set(h[0], groundAt(h[0], h[1]) + 0.05, h[1]); m.material = h[2] ? goldMat : holeMat; m.scale.setScalar(h[2] ? 1.3 : 1); }
   });
   hud(s);
+  const mine = players.get(me);
+  if (mine) { $('hp-fill').style.width = `${Math.max(0, mine.hp)}%`; $('hp-note').textContent = mine.ko ? 'knocked out, back at spawn' : ''; }
+  $('insider').hidden = !me;
+  if (me) renderInsider(s.insider);
+}
+
+function syncCritters(list) {
+  const seen = new Set();
+  for (const [id, kind, ticker, x, y, z, h, hp, maxHp, wind] of list) {
+    seen.add(id);
+    let c = critters.get(id);
+    if (!c) {
+      const r = kind === 'boss' ? 2.2 : 1.1;
+      const body = new THREE.Mesh(blobGeo, toon({ color: CRIT_COLORS[ticker] ?? '#ff8fa3' }));
+      body.scale.set(r, r * 0.9, r);
+      const eyes = new THREE.Mesh(eyeGeo, eyeMat);
+      eyes.scale.setScalar(r);
+      const mesh = new THREE.Group(); mesh.add(body, eyes);
+      scene.add(mesh);
+      const tag = document.createElement('div'); tag.className = `crit ${kind}`;
+      tag.innerHTML = `$${ticker} ${kind === 'boss' ? 'BOSS' : ''}<b><i></i></b>`;
+      bubblesEl.appendChild(tag);
+      c = { mesh, body, tag, bar: tag.querySelector('i'), r, cur: { x, y, z, h }, kind };
+      critters.set(id, c);
+    }
+    Object.assign(c, { target: { x, y, z, h }, wind, hp, maxHp });
+  }
+  for (const [id, c] of critters) if (!seen.has(id)) { scene.remove(c.mesh); c.tag.remove(); critters.delete(id); }
 }
 
 // ---------------------------------------------------------------- HUD
@@ -94,6 +136,10 @@ function hud(s) {
     const div = document.createElement('div');
     if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}`; }
     else if (e.kind === 'join') div.textContent = `${e.who} arrived`;
+    else if (e.kind === 'critter') { div.className = e.boss || e.real ? 'legendary' : 'rare'; div.textContent = `${e.who} beat ${e.critter}: ${e.shares.map((x) => `${x.name} +${x.shares} $${e.ticker}`).join(', ')}${e.real ? ` · real $${e.real}!` : ''}`; }
+    else if (e.kind === 'ko') div.textContent = `${e.who} got knocked out by ${e.by}`;
+    else if (e.kind === 'insider_start') { div.className = 'rare'; div.textContent = `Insider round started with ${e.players} players. Someone knows the move...`; }
+    else if (e.kind === 'insider_end') { div.className = 'legendary'; div.textContent = e.aborted ? `Insider round cancelled: ${e.reason}` : `${e.insider} was the insider. ${e.caught ? 'Traders caught them!' : 'They got away with it.'}`; }
     else if (e.kind === 'say') continue;
     else continue;
     $('feed').appendChild(div);
@@ -127,6 +173,7 @@ addEventListener('keydown', (e) => {
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
   if (e.code === 'Space') { e.preventDefault(); scan(); }
   if (e.code === 'KeyE' || e.code === 'KeyF') dig();
+  if (e.code === 'KeyX') attack();
   if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); }
   if (e.code.startsWith('Digit')) { const em = ['wave', 'cheer', 'dance', 'sad', 'shrug'][Number(e.code.slice(5)) - 1]; if (em) act('emote', { name: em }); }
 });
@@ -152,6 +199,11 @@ async function dig() {
   $('detector-hint').textContent = r.found ? `found a ${r.rarity} chest!` : 'nothing here';
   if (r.found) chime();
 }
+async function attack() {
+  const r = await act('attack');
+  if (r?.ok) { tone(220, 0.08, 0.08, 'sawtooth'); if (r.defeated) chime(); $('detector-hint').textContent = r.defeated ? `defeated ${r.critter}!` : `hit ${r.critter}: ${r.hp}/${r.maxHp}`; }
+  else if (r && r.error !== 'cooldown') $('detector-hint').textContent = r.error;
+}
 function cycleWatch() {
   const ids = [...players.keys()].filter((id) => players.get(id).kind === 'agent');
   if (!ids.length) return;
@@ -159,6 +211,41 @@ function cycleWatch() {
   $('watching').hidden = false;
   $('watching').textContent = `watching ${players.get(watchId).name} · Tab for next`;
 }
+
+// ---------------------------------------------------------------- Insider panel
+let insHtml = '', insPriv = null, insBusy = false;
+async function pollInsider() {
+  if (!me || insBusy) return;
+  insBusy = true;
+  try { const s = await act('insider_status'); if (s?.ok) insPriv = s; } finally { insBusy = false; }
+}
+setInterval(pollInsider, 1000);
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderInsider(pub) {
+  const priv = insPriv, joined = !!priv?.joined, myName = players.get(me)?.name;
+  $('ins-phase').textContent = pub.phase === 'lobby' ? '' : `${pub.phase} ${Math.ceil(pub.timeLeft)}s`;
+  let h = '';
+  if (!joined) h = `<p>Among Us for stocks. One trader knows the move. Find them.</p><p>${pub.members.length} / ${pub.min} in the lobby</p><button class="wide" data-ins="join">Join lobby</button>`;
+  else if (pub.phase === 'lobby') h = `<p>${pub.members.length} / ${pub.min} in the lobby${pub.members.length >= pub.min ? ` · starting in ${Math.ceil(pub.timeLeft)}s` : ''}</p><p class="tape">${pub.members.map(esc).join(', ')}</p><button class="wide sell" data-ins="leave">Leave</button>`;
+  else if (pub.phase === 'trading' && priv?.role) {
+    h = priv.role === 'insider' ? `<p class="role ins">You are the INSIDER. $${priv.move.ticker} is about to pump.</p>` : '<p class="role">You are a trader. Watch the tape.</p>';
+    h += `<p>cash $${Math.round(priv.cash)}</p><table>${pub.prices.map(([t, p]) => `<tr><td>$${t}${priv.holdings[t] ? ` (${priv.holdings[t]})` : ''}</td><td>${p.toFixed(2)}</td><td><button data-ins="buy" data-t="${t}">+10</button><button class="sell" data-ins="sell" data-t="${t}">-10</button></td></tr>`).join('')}</table>`;
+    h += `<div class="tape">${pub.tape.slice(-4).map((e) => `${esc(e.who)} ${e.side === 'buy' ? 'bought' : 'sold'} ${e.shares} $${e.ticker}`).join('<br>')}</div>`;
+  } else if (pub.phase === 'voting' && priv?.role) {
+    h = `<p>Who is the insider? ${pub.voted} voted</p>` + pub.members.filter((n) => n !== myName).map((n) => `<button class="wide ${priv.yourVote === n ? 'picked' : ''}" data-ins="accuse" data-n="${esc(n)}">${esc(n)}</button>`).join('');
+  } else if (pub.phase === 'reveal' && pub.result) {
+    const r = pub.result;
+    h = r.aborted ? `<p>Round cancelled: ${esc(r.reason)}</p>` : `<p class="win">${esc(r.insider)} was the insider${r.caught ? '. Caught!' : ' and got away with it.'}</p><p>$${r.move} pumped ${r.pump}. ${esc(r.reward)}.</p><div class="tape">${r.results.slice(0, 4).map((x) => `${esc(x.name)} ${x.profit >= 0 ? '+' : ''}${Math.round(x.profit)}`).join('<br>')}</div>`;
+  } else h = `<p>Round in progress. You join the next one.</p><button class="wide sell" data-ins="leave">Leave</button>`;
+  if (h !== insHtml) { insHtml = h; $('ins-body').innerHTML = h; }
+}
+$('ins-body').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-ins]');
+  if (!b) return;
+  const d = b.dataset, r = await act(d.ins === 'buy' || d.ins === 'sell' ? 'insider_trade' : d.ins === 'accuse' ? 'insider_accuse' : `insider_${d.ins}`, d.ins === 'accuse' ? { name: d.n } : { ticker: d.t, side: d.ins, shares: 10 });
+  if (r && r.ok === false) $('hp-note').textContent = r.error;
+  insPriv = null; pollInsider();
+});
 
 // tiny synth sounds
 let actx = null;
@@ -207,6 +294,22 @@ function frame() {
     p.tag.hidden = !onScreen;
     p.bub.hidden = !p.say || !onScreen;
     if (p.say) { p.bub.textContent = p.say; p.bub.style.transform = `translate(${sx}px, ${sy - 8}px) translate(-50%, -100%)`; }
+  }
+  for (const c of critters.values()) {
+    const k = 1 - Math.exp(-dt * 10);
+    c.cur.x += (c.target.x - c.cur.x) * k; c.cur.z += (c.target.z - c.cur.z) * k; c.cur.y += (c.target.y - c.cur.y) * k;
+    let dh = c.target.h - c.cur.h; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); c.cur.h += dh * k;
+    const t = now / 1000, hop = Math.abs(Math.sin(t * 5 + c.r * 7)) * 0.35 * c.r;
+    const squash = c.wind ? 1 + Math.sin(t * 40) * 0.08 : 1;
+    c.mesh.position.set(c.cur.x, c.cur.y + c.r * 0.9 + hop, c.cur.z);
+    c.mesh.rotation.y = c.cur.h;
+    c.mesh.scale.set(squash, c.wind ? 0.85 : 1, squash);
+    c.body.material.emissive.set(c.wind ? '#ff2a1a' : '#000000');
+    c.bar.style.width = `${(100 * c.hp) / c.maxHp}%`;
+    c.tag.classList.toggle('wind', !!c.wind);
+    v.set(c.cur.x, c.cur.y + c.r * 2.4, c.cur.z).project(camera);
+    c.tag.style.transform = `translate(${(v.x * 0.5 + 0.5) * innerWidth}px, ${(-v.y * 0.5 + 0.5) * innerHeight}px) translate(-50%, -100%)`;
+    c.tag.hidden = v.z >= 1;
   }
   // camera: high three-quarter follow of you (or the agent you're watching)
   const focus = players.get(watchId ?? me) ?? players.get(me);

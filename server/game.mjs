@@ -5,6 +5,8 @@ import { createHmac, randomBytes } from 'node:crypto';
 import {
   groundAt, canStep, findPath, randomLandPoint, SPAWN, MESAS, SIZE,
 } from '../src/shared/world.js';
+import { Critters, MAX_HP, SAFE_RADIUS } from './critters.mjs';
+import { Insider } from './insider.mjs';
 
 export const MEME_STOCKS = [
   { ticker: 'BLUP', name: 'Blup Industries', price: 4.2 },
@@ -28,7 +30,7 @@ const rngFrom = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79
 const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
 export class Game {
-  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now() } = {}) {
+  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now(), insider = {}, critters = true } = {}) {
     this.now = now;
     this.rnd = rngFrom(createHmac('sha256', secret).update('chests').digest().readUInt32BE(0));
     this.players = new Map();
@@ -40,7 +42,11 @@ export class Game {
     this.nextId = 1;
     this.t = 0;
     while (this.chests.length < ACTIVE_CHESTS) this.spawnChest();
+    this.critters = new Critters(this, critters);
+    this.insider = new Insider(this, insider);
   }
+
+  realDrop() { return REAL_DROPS[Math.floor(this.rnd() * REAL_DROPS.length)]; }
 
   // ---------------------------------------------------------------- chests
   spawnChest() {
@@ -52,7 +58,7 @@ export class Game {
     const add = (t, n) => { loot[t] = (loot[t] ?? 0) + n; };
     if (rarity === 'common') add(pick(), 5 + Math.floor(this.rnd() * 16));
     if (rarity === 'rare') { add(pick(), 20 + Math.floor(this.rnd() * 40)); add(pick(), 10 + Math.floor(this.rnd() * 20)); }
-    if (rarity === 'legendary') { add(pick(), 60 + Math.floor(this.rnd() * 60)); add(REAL_DROPS[Math.floor(this.rnd() * REAL_DROPS.length)], 1); }
+    if (rarity === 'legendary') { add(pick(), 60 + Math.floor(this.rnd() * 60)); add(this.realDrop(), 1); }
     this.chests.push({ id: `c${this.nextId++}`, x: p.x, z: p.z, rarity, loot });
   }
 
@@ -70,6 +76,7 @@ export class Game {
       id, name: clean, kind, look: LOOKS.includes(look) ? look : LOOKS[this.players.size % LOOKS.length],
       x: SPAWN.x + (this.rnd() - 0.5) * 6, z: SPAWN.z + (this.rnd() - 0.5) * 6, heading: Math.PI,
       move: null, path: null, pathWaiters: [], anim: 'idle', say: null, sayT: 0, emote: null, emoteT: 0,
+      hp: MAX_HP, ko: 0, atkT: 0, animT: 0, hurt: 0, kills: 0, insiderStats: { played: 0, wins: 0 },
       dig: null, detect: { signal: 0, bars: 0, t: 0 }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0,
     };
     p.y = groundAt(p.x, p.z);
@@ -82,6 +89,7 @@ export class Game {
     const p = this.players.get(id);
     if (!p) return;
     p.pathWaiters.forEach((w) => w({ ok: false, status: 'left' }));
+    this.insider.remove(id);
     this.players.delete(id);
     this.pushEvent({ kind: 'leave', who: p.name });
   }
@@ -105,6 +113,7 @@ export class Game {
     const p = this.players.get(id);
     if (!p) return { ok: false, error: 'not in the game' };
     p.lastSeen = this.now();
+    if (p.ko > 0 && PHYSICAL.includes(action)) return { ok: false, error: 'knocked out, back on your feet in a few seconds', seconds: round(p.ko, 1) };
     const busy = p.dig && action !== 'state' && action !== 'look' && action !== 'leaderboard' && action !== 'say';
     if (busy) return { ok: false, error: 'busy digging' };
     switch (action) {
@@ -152,6 +161,13 @@ export class Game {
         p.emote = args.name; p.emoteT = 2.5;
         return { ok: true };
       }
+      case 'attack': return this.critters.attack(p, args);
+      case 'critters': return { ok: true, critters: this.critters.near(p, 400), safeZone: { x: round(SPAWN.x), z: round(SPAWN.z), radius: SAFE_RADIUS } };
+      case 'insider_join': return this.insider.join(p);
+      case 'insider_leave': return this.insider.leave(p);
+      case 'insider_status': return { ok: true, ...this.insider.status(p) };
+      case 'insider_trade': return this.insider.trade(p, args);
+      case 'insider_accuse': return this.insider.accuse(p, args);
       case 'state': return { ok: true, ...this.view(p) };
       case 'look': return { ok: true, ...this.look(p) };
       case 'leaderboard': return { ok: true, leaderboard: this.leaderboard() };
@@ -185,13 +201,15 @@ export class Game {
 
   view(p) {
     return {
-      you: { id: p.id, name: p.name, look: p.look, x: round(p.x), y: round(p.y), z: round(p.z), heading: round(p.heading), anim: p.anim, walking: !!p.path || !!p.move, digging: !!p.dig },
+      you: { id: p.id, name: p.name, look: p.look, x: round(p.x), y: round(p.y), z: round(p.z), heading: round(p.heading), anim: p.anim, walking: !!p.path || !!p.move, digging: !!p.dig, hp: p.hp, maxHp: MAX_HP, knockedOut: p.ko > 0 },
       detector: { signal: p.detect.signal, bars: p.detect.bars, secondsAgo: round(this.t - p.detect.t, 1) },
-      portfolio: { holdings: p.portfolio, value: this.portfolioValue(p), chestsFound: p.found },
+      portfolio: { holdings: p.portfolio, value: this.portfolioValue(p), chestsFound: p.found, critterKills: p.kills },
       market: this.market.map((s) => ({ ticker: s.ticker, price: round(s.price), change: round(((s.price - s.open) / s.open) * 100, 1) })),
       nearby: this.look(p).players,
+      critters: this.critters.near(p, 40),
+      insider: { phase: this.insider.phase, joined: this.insider.members.has(p.id), timeLeft: round(Math.max(0, this.insider.t), 1) },
       recent: this.events.slice(-8),
-      rules: 'Walk around, call detect often (bars 0-5 rise as you near a buried chest), dig when bars are 5. Chests hold made-up stocks; legendary ones may hold a real tokenized stock.',
+      rules: 'Treasure Hunt: walk around, call detect often (bars 0-5 rise as you near a buried chest), dig when bars are 5. Chests hold made-up stocks; legendary ones may hold a real tokenized stock. Stock Critters: critters roam outside the spawn safe zone; get within 4m and attack, but step away when one winds up a swing. Bosses drop the most stock and sometimes a real one. Insider: insider_join, then trade, read the tape and accuse the player who trades like they know the move; see insider_status.',
     };
   }
 
@@ -200,11 +218,11 @@ export class Game {
       .map((o) => ({ name: o.name, kind: o.kind, x: round(o.x), z: round(o.z), distance: round(Math.hypot(o.x - p.x, o.z - p.z), 1), anim: o.anim, say: o.say }))
       .sort((a, b) => a.distance - b.distance).slice(0, 8);
     const holes = this.holes.filter((h) => Math.hypot(h.x - p.x, h.z - p.z) < 30).map((h) => ({ x: round(h.x), z: round(h.z), found: h.found }));
-    return { players, holes, landmarks: this.landmarks() };
+    return { players, holes, critters: this.critters.near(p, 40), landmarks: this.landmarks() };
   }
 
   leaderboard() {
-    return [...this.players.values()].map((p) => ({ name: p.name, kind: p.kind, value: this.portfolioValue(p), chests: p.found }))
+    return [...this.players.values()].map((p) => ({ name: p.name, kind: p.kind, value: this.portfolioValue(p), chests: p.found, kills: p.kills, insiderWins: p.insiderStats.wins }))
       .sort((a, b) => b.value - a.value).slice(0, 20);
   }
 
@@ -222,9 +240,13 @@ export class Game {
         if (s.history.length > 90) s.history.shift();
       }
     }
+    this.critters.tick(dt);
+    this.insider.tick(dt);
     for (const p of this.players.values()) {
       if (p.sayT > 0 && (p.sayT -= dt) <= 0) p.say = null;
       if (p.emoteT > 0 && (p.emoteT -= dt) <= 0) p.emote = null;
+      if (p.animT > 0 && (p.animT -= dt) <= 0 && p.anim === 'dig' && !p.dig) p.anim = 'idle';
+      if (p.hurt > 0) p.hurt -= dt;
       if (p.dig) { this.tickDig(p, dt); continue; }
       let dir = null;
       if (p.path) {
@@ -295,7 +317,9 @@ export class Game {
   snapshot() {
     return {
       t: round(this.t, 2),
-      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars]),
+      players: [...this.players.values()].map((p) => [p.id, p.name, p.kind, p.look, round(p.x), round(p.y), round(p.z), round(p.heading, 2), p.anim, p.say, p.emote, p.detect.bars, p.hp, p.ko > 0 ? 1 : 0]),
+      critters: this.critters.snapshot(),
+      insider: this.insider.publicView(),
       holes: this.holes.map((h) => [round(h.x), round(h.z), h.found]),
       market: this.market.map((s) => [s.ticker, round(s.price), round(((s.price - s.open) / s.open) * 100, 1)]),
       events: this.events.slice(-6),
@@ -303,4 +327,5 @@ export class Game {
   }
 }
 
-export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'walk_to', 'detect', 'dig', 'say', 'emote'];
+export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'walk_to', 'detect', 'dig', 'say', 'emote', 'attack', 'critters', 'insider_join', 'insider_leave', 'insider_status', 'insider_trade', 'insider_accuse'];
+const PHYSICAL = ['move', 'walk_to', 'detect', 'dig', 'attack'];

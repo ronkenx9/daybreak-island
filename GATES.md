@@ -36,3 +36,17 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
   CHECK: node scripts/soak.mjs --bots 12 --hours 2 --runs 5
   EXPECT: SOAK OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=ff6c25212c452ac11f20c571f377f43638a7f77f42c36ac6aa6df161ef9620a3; exit=0; EXPECT=matched; output-sha256=0305b93068a4d032dd2c0f87b397c20c6d14c87be58f3384a46a78c2b2333dbd; output-bytes=278; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=119a07387374/26 entries
+
+# Slice 2: Stock Critters and Insider
+
+- [x] G8: Stock Critters rules are correct: critters stay out of the spawn safe zone, attacks need range and respect the cooldown, loot is split by damage, dead critters respawn, bosses can drop a real stock, swings are telegraphed and dodgeable, and a knockout sends you to spawn.
+  CHECK: node test/run.mjs
+  EXPECT: ALL TESTS PASSED
+
+- [x] G9: Insider rules are correct: the lobby waits for enough players, exactly one insider is dealt and only they see the move, trades move prices and hit the public tape, votes resolve (ties catch nobody), winners are paid, the pump lands after the vote, and a round aborts cleanly when the insider leaves.
+  CHECK: node test/run.mjs
+  EXPECT: ALL TESTS PASSED
+
+- [x] G10: Agents can play both new modes headlessly over HTTP, and every new action is an MCP tool a real client can call.
+  CHECK: node scripts/sim-modes.mjs --seconds 50 --assert && node test/mcp-e2e.mjs
+  EXPECT: MODES OK
