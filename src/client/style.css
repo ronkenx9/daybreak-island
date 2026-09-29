@@ -62,6 +62,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 #prize-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 #prize-list a { color: var(--blue); font-weight: 700; text-decoration: none; }
 .feed .prize { background: var(--gold); font-weight: 700; }
+.feed .moment { background: #f3e6ff; font-style: italic; }
 .win { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(10, 10, 40, 0.45); pointer-events: auto; z-index: 5; }
 .win-card { width: min(360px, calc(100vw - 32px)); background: var(--cream); border-radius: 24px; padding: 24px; text-align: center; box-shadow: var(--shadow); border: 4px solid var(--gold); animation: pop 0.35s cubic-bezier(.2, 1.4, .4, 1); }
 .win-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: #b8860b; }
@@ -70,3 +71,27 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 @keyframes pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .win-card { animation: none; } }
 @media (max-width: 700px) { .board { display: none; } .ticker { top: auto; bottom: 56px; font-size: 11px; } .portfolio { top: 118px; width: 160px; } .detector { width: 160px; } .feed { width: 220px; bottom: 90px; } .prizes { top: 222px; width: 160px; } }
+
+/* filming: no HUD, keep name tags and speech bubbles */
+.cinema .hud, .cinema .splash { display: none !important; }
+
+/* Insider */
+.insider-banner { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); background: #2a1640; color: #fff; padding: 7px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; box-shadow: var(--shadow); white-space: nowrap; }
+.insider-banner.meeting { background: #d7263d; animation: pulse 1s ease-in-out infinite alternate; }
+.insider-banner.reveal { background: var(--gold); color: var(--ink); }
+@keyframes pulse { to { transform: translateX(-50%) scale(1.05); } }
+.insider { left: 14px; top: 362px; width: 210px; pointer-events: auto; }
+.insider .label.insider-role { color: #d7263d; opacity: 1; }
+.ins-body { font-size: 12.5px; line-height: 1.45; margin-top: 4px; }
+.ins-body li { margin-left: -14px; }
+.ins-leak { margin-top: 6px; gap: 6px; }
+.ins-leak input, .chat input { flex: 1; min-width: 0; font: 600 13px var(--font); padding: 6px 9px; border-radius: 9px; border: 2px solid #e4dccb; user-select: text; }
+.meeting { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%); width: min(560px, calc(100vw - 28px)); background: rgba(255, 250, 240, 0.96); border-radius: 18px; padding: 12px 14px; box-shadow: var(--shadow); pointer-events: auto; border: 3px solid #d7263d; }
+.meeting-title { font-weight: 700; color: #d7263d; letter-spacing: 0.06em; font-size: 13px; }
+.meeting-log { max-height: 128px; overflow-y: auto; font-size: 13px; line-height: 1.4; margin: 6px 0 8px; }
+.meeting-log b { color: var(--blue); }
+.meeting-votes { display: flex; flex-wrap: wrap; gap: 6px; }
+.meeting-votes .mini.voted { background: #d7263d; box-shadow: 0 3px 0 #8a1020; }
+.chat { position: absolute; left: 50%; bottom: 100px; transform: translateX(-50%); width: min(420px, calc(100vw - 28px)); display: flex; pointer-events: auto; }
+.feed .rumor { background: #2a1640; color: #fff; }
+.feed .insider-ev { background: #efe3ff; font-weight: 700; }

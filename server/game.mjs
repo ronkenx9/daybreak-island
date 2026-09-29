@@ -2,6 +2,7 @@
 // (HTTP/MCP) call the same actions; the server owns positions, hidden chests,
 // the detector, digging and everyone's portfolio.
 import { createHmac, randomBytes } from 'node:crypto';
+import { InsiderGame } from './insider.mjs';
 import {
   groundAt, canStep, findPath, randomLandPoint, SPAWN, MESAS, SIZE,
 } from '../src/shared/world.js';
@@ -38,7 +39,7 @@ const rngFrom = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79
 const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
 export class Game {
-  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now(), prizes = null } = {}) {
+  constructor({ secret = randomBytes(16).toString('hex'), now = () => Date.now(), prizes = null, insider = {} } = {}) {
     this.now = now;
     this.prizes = prizes; // PrizePool or null
     this.rnd = rngFrom(createHmac('sha256', secret).update('chests').digest().readUInt32BE(0));
@@ -51,6 +52,7 @@ export class Game {
     this.nextId = 1;
     this.t = 0;
     while (this.chests.length < ACTIVE_CHESTS) this.spawnChest();
+    this.insider = new InsiderGame(this, insider);
   }
 
   // ---------------------------------------------------------------- chests
@@ -94,6 +96,7 @@ export class Game {
     if (!p) return;
     p.pathWaiters.forEach((w) => w({ ok: false, status: 'left' }));
     this.players.delete(id);
+    this.insider.onLeave(id);
     this.pushEvent({ kind: 'leave', who: p.name });
   }
 
@@ -116,8 +119,9 @@ export class Game {
     const p = this.players.get(id);
     if (!p) return { ok: false, error: 'not in the game' };
     p.lastSeen = this.now();
-    const busy = p.dig && action !== 'state' && action !== 'look' && action !== 'leaderboard' && action !== 'say';
+    const busy = p.dig && action !== 'state' && action !== 'look' && action !== 'leaderboard' && action !== 'say' && action !== 'insider';
     if (busy) return { ok: false, error: 'busy digging' };
+    if (p.meeting && ['move', 'walk_to', 'dig', 'face'].includes(action)) return { ok: false, error: 'you are in the emergency meeting: talk (say) and vote' };
     switch (action) {
       case 'move': {
         const dx = Number(args.dx) || 0, dz = Number(args.dz) || 0, l = Math.hypot(dx, dz);
@@ -170,6 +174,15 @@ export class Game {
         this.pushEvent({ kind: 'say', who: p.name, text });
         return { ok: true };
       }
+      case 'moment': {
+        // a small public beat ("is watching the sunset"): shows in everyone's feed, at most one per 10s
+        const text = String(args.text ?? '').replace(/[\r\n]+/g, ' ').slice(0, 80).trim();
+        if (!text) return { ok: false, error: 'text required' };
+        if (p.momentT && this.t - p.momentT < 10) return { ok: false, error: 'one moment per 10 seconds' };
+        p.momentT = this.t;
+        this.pushEvent({ kind: 'moment', who: p.name, text });
+        return { ok: true };
+      }
       case 'emote': {
         if (!EMOTES.includes(args.name)) return { ok: false, error: 'unknown emote', emotes: EMOTES };
         p.emote = args.name; p.emoteT = 2.5;
@@ -187,6 +200,9 @@ export class Game {
         if (!this.prizes?.enabled) return { ok: false, error: 'real prizes are off on this server' };
         return this.prizes.list(p);
       }
+      case 'insider': return this.insider.status(p);
+      case 'vote': return this.insider.vote(p, args.who);
+      case 'leak': return this.insider.leak(p, args.text);
       case 'state': return { ok: true, ...this.view(p) };
       case 'look': return { ok: true, ...this.look(p) };
       case 'leaderboard': return { ok: true, leaderboard: this.leaderboard() };
@@ -225,7 +241,7 @@ export class Game {
       portfolio: { holdings: p.portfolio, value: this.portfolioValue(p), chestsFound: p.found },
       market: this.market.map((s) => ({ ticker: s.ticker, price: round(s.price), change: round(((s.price - s.open) / s.open) * 100, 1) })),
       nearby: this.look(p).players,
-      recent: this.events.slice(-8),
+      recent: this.events.slice(-14),
       rules: 'Walk around, call detect often (bars 0-5 rise as you near a buried chest), dig when bars are 5. Chests hold made-up stocks. Legendary chests also win a real tokenized stock from the daily prize pool if you linked a wallet (one per wallet per day); collect it with the prizes action.',
       realPrizes: this.prizes?.enabled ? this.prizes.stats() : { mode: 'off' },
     };
@@ -247,6 +263,7 @@ export class Game {
   // ---------------------------------------------------------------- simulation
   tick(dt) {
     this.t += dt;
+    this.insider.tick(dt);
     // made-up stock market: small random walk, occasional spikes
     this.marketT += dt;
     if (this.marketT > 4) {
@@ -333,6 +350,8 @@ export class Game {
       this.pushEvent({ kind: 'chest', who: p.name, rarity: chest.rarity, loot, streak: p.streak });
       this.spawnChest();
       const result = { ok: true, found: true, rarity: chest.rarity, loot, streak: p.streak, multiplier, portfolioValue: this.portfolioValue(p) };
+      const clue = this.insider.onDig(p, true);
+      if (clue) result.insiderClue = clue; // private: only the digger sees it
       if (chest.rarity === 'legendary' && this.prizes) {
         resolve(this.prizes.award(p).then((prize) => {
           if (prize.won) this.pushEvent({ kind: 'prize', who: p.name, ticker: prize.prize.ticker, amount: prize.prize.amountTokens });
@@ -347,7 +366,9 @@ export class Game {
       const junk = !beaten && this.rnd() < JUNK_CHANCE ? Object.keys(JUNK)[Math.floor(this.rnd() * Object.keys(JUNK).length)] : null;
       this.holes.push({ ...this.digSpot(p), t: this.t, found: null, junk });
       if (junk) { p.emote = 'sad'; p.emoteT = 2; this.pushEvent({ kind: 'junk', who: p.name, junk, label: JUNK[junk] }); }
+      const clue = this.insider.onDig(p, false);
       resolve({
+        ...(clue ? { insiderClue: clue } : {}),
         ok: true, found: false, junk, junkLabel: junk ? JUNK[junk] : null, beaten: !!beaten, lostStreak,
         hint: beaten ? 'someone dug that chest up first!' : junk ? `you dug up ${JUNK[junk]}. use detect and follow the bars up` : 'nothing here. use detect and follow the bars up',
       });
@@ -362,8 +383,9 @@ export class Game {
       holes: this.holes.map((h) => [round(h.x), round(h.z), h.found, round(this.t - h.t, 1), h.junk ?? null]),
       market: this.market.map((s) => [s.ticker, round(s.price), round(((s.price - s.open) / s.open) * 100, 1)]),
       events: this.events.slice(-6),
+      insider: this.insider.public(),
     };
   }
 }
 
-export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'face', 'walk_to', 'detect', 'dig', 'say', 'emote', 'link_wallet_challenge', 'link_wallet', 'prizes'];
+export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'face', 'walk_to', 'detect', 'dig', 'say', 'emote', 'moment', 'insider', 'vote', 'leak', 'link_wallet_challenge', 'link_wallet', 'prizes'];

@@ -46,7 +46,7 @@ const act = (action, args) => new Promise((resolve) => {
 });
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
-  if (m.type === 'welcome') { me = m.id; showPrizePanel(); }
+  if (m.type === 'welcome') { me = m.id; showPrizePanel(); $('chat').hidden = false; }
   if (m.type === 'full') { $('splash').hidden = false; $('play').textContent = m.error; }
   if (m.type === 'result') { pending.get(m.rid)?.(m.out); pending.delete(m.rid); }
   if (m.type === 'snap') onSnap(m);
@@ -72,7 +72,71 @@ function onSnap(s) {
   }
   for (const [id, p] of players) if (!seen.has(id)) { scene.remove(p.ch.root); p.tag.remove(); p.bub.remove(); players.delete(id); }
   hud(s);
+  insiderHud(s.insider);
 }
+
+// ---------------------------------------------------------------- Insider (Among Us for stocks)
+let ins = { phase: 'lobby' }, insPrivate = null, meetingLog = [];
+const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+function logMeeting(who, text) {
+  meetingLog.push(`<b>${esc(who)}</b>: ${esc(text)}`);
+  meetingLog = meetingLog.slice(-30);
+  $('meeting-log').innerHTML = meetingLog.join('<br>');
+  $('meeting-log').scrollTop = 1e6;
+}
+function insiderHud(pub) {
+  if (!pub) return;
+  if (pub.phase === 'meeting' && ins.phase !== 'meeting') meetingLog = [];
+  ins = pub;
+  const b = $('ins-banner');
+  b.hidden = pub.phase === 'lobby';
+  b.className = `insider-banner ${pub.phase}`;
+  if (pub.phase === 'hunt') b.textContent = `INSIDER ROUND ${pub.round} · someone knows which stock pumps · meeting in ${mmss(pub.left)}`;
+  if (pub.phase === 'meeting') b.textContent = `EMERGENCY MEETING · ${pub.votesCast}/${pub.players.length} voted · ${mmss(pub.left)}`;
+  if (pub.phase === 'reveal' && pub.last) b.textContent = pub.last.outcome === 'caught' ? `${pub.last.insider} WAS THE INSIDER · CAUGHT` : `THE INSIDER ${pub.last.insider} GOT AWAY · $${pub.last.ticker} PUMPS`;
+  $('meeting-time').textContent = pub.phase === 'meeting' ? mmss(pub.left) : '';
+}
+async function refreshInsider() {
+  if (!me || ins.phase === 'lobby') { $('ins-panel').hidden = true; $('meeting').hidden = true; return; }
+  const st = await act('insider');
+  if (!st?.ok) return;
+  insPrivate = st;
+  const inRound = st.role === 'crew' || st.role === 'insider';
+  $('ins-panel').hidden = !inRound;
+  $('ins-role').textContent = st.role === 'insider' ? 'YOU ARE THE INSIDER' : 'CREW · FIND THE INSIDER';
+  $('ins-role').className = `label ${st.role === 'insider' ? 'insider-role' : ''}`;
+  const rumors = st.rumors?.length ? `<div>Rumours: ${st.rumors.map((r) => `“${esc(r)}”`).join(' ')}</div>` : '';
+  $('ins-body').innerHTML = st.role === 'insider'
+    ? `<div>You know <b>$${esc(st.ticker)}</b> pumps at the bell. Blend in. Don't get voted out.</div>${rumors}`
+    : `<div>${st.clues?.length ? `Your clues:<ul>${st.clues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : 'Dig to find clues about the insider.'}</div>${rumors}`;
+  $('ins-leak').hidden = !(st.role === 'insider' && st.canLeak && st.phase === 'hunt');
+  $('meeting').hidden = !(inRound && st.phase === 'meeting');
+  if (inRound && st.phase === 'meeting') {
+    const box = $('meeting-votes');
+    const names = st.players.filter((n) => n !== players.get(me)?.name);
+    box.replaceChildren(...[...names, 'skip'].map((n) => {
+      const btn = document.createElement('button');
+      btn.className = `mini ${st.myVote === n ? 'voted' : ''}`;
+      btn.textContent = n === 'skip' ? 'Skip vote' : `Vote ${n}`;
+      btn.addEventListener('click', async (e) => { e.currentTarget.blur(); await act('vote', { who: n }); refreshInsider(); });
+      return btn;
+    }));
+  }
+}
+setInterval(refreshInsider, 1000);
+$('ins-leak-btn').addEventListener('click', async (e) => {
+  e.currentTarget.blur();
+  const text = $('ins-leak-text').value.trim();
+  if (text) { await act('leak', { text }); $('ins-leak-text').value = ''; refreshInsider(); }
+});
+// chat: Enter to talk (in meetings and anywhere else)
+$('chat').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('chat-text').value.trim();
+  if (text) act('say', { text });
+  $('chat-text').value = '';
+  $('chat-text').blur();
+});
 
 // ---------------------------------------------------------------- HUD
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -87,6 +151,11 @@ function hud(s) {
     let delay = 0;
     if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}${e.streak > 1 ? ` (streak ${e.streak})` : ''}`; delay = 1350; }
     else if (e.kind === 'junk') div.textContent = `${e.who} dug up ${e.label}`;
+    else if (e.kind === 'moment') { div.className = 'moment'; div.textContent = `${e.who} ${e.text}`; }
+    else if (e.kind === 'insider' || e.kind === 'insider-reveal') { div.className = 'insider-ev'; div.textContent = e.text; }
+    else if (e.kind === 'rumor') { div.className = 'rumor'; div.textContent = `Rumour: ${e.text}`; }
+    else if (e.kind === 'vote') div.textContent = `${e.who} voted`;
+    else if (e.kind === 'say') { if (s.insider?.phase === 'meeting') logMeeting(e.who, e.text); continue; }
     else if (e.kind === 'join') div.textContent = `${e.who} arrived`;
     else if (e.kind === 'prize') { div.className = 'prize'; div.textContent = `${e.who} won ${e.amount} real $${e.ticker}!`; delay = 1350; }
     else continue;
@@ -159,7 +228,8 @@ const clampCam = () => { cam.pitch = Math.min(1.35, Math.max(0.06, cam.pitch)); 
   el.style.cursor = 'grab';
 }
 addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement) return;
+  if (e.target instanceof HTMLInputElement) { if (e.code === 'Escape') e.target.blur(); return; }
+  if (e.code === 'Enter' && me) { e.preventDefault(); $('chat').hidden = false; $('chat-text').focus(); return; }
   keys.add(e.code);
   if (e.code === 'KeyC') resetView();
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
@@ -343,7 +413,18 @@ $('play').addEventListener('click', () => {
   $('splash').hidden = true;
 });
 $('watch').addEventListener('click', () => { $('splash').hidden = true; $('controls').textContent = 'watching agents · Tab to switch'; setTimeout(cycleWatch, 500); });
-if (params.has('watch')) $('watch').click();
+if (params.has('watch') || params.has('follow')) $('watch').click();
+// ---------------------------------------------------------------- filming: ?cinema hides the HUD, ?follow=Name rides behind one agent
+if (params.has('cinema')) document.body.classList.add('cinema');
+function follow(name) {
+  const hit = [...players.entries()].find(([, p]) => p.name.toLowerCase() === String(name).toLowerCase());
+  if (!hit) return false;
+  watchId = hit[0];
+  $('watching').hidden = document.body.classList.contains('cinema');
+  $('watching').textContent = `watching ${hit[1].name} · Tab for next`;
+  return true;
+}
+if (params.has('follow')) { const want = params.get('follow'); const t = setInterval(() => { if (follow(want)) clearInterval(t); }, 300); }
 
 // ---------------------------------------------------------------- loop
 const camPos = new THREE.Vector3(0, 60, 120), camLook = new THREE.Vector3(0, 0, 60), focusV = new THREE.Vector3();
@@ -391,7 +472,11 @@ function frame() {
     if (focus === players.get(me) && myHeading !== null) { if (steer.fwd > 0 || steer.turn) behind(myHeading, steer.turn ? 6 : 2.5); }
     else if (watchId && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05) behind(focus.cur.h, 1.8);
   }
-  if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
+  if (ins.phase === 'meeting' && ins.spot && (!me || insPrivate?.role !== 'spectator')) {
+    const r = 13, a = now / 9000; // a slow orbit around the circle
+    camPos.lerp(v.set(ins.spot.x + Math.sin(a) * r * 0.8, groundAt(ins.spot.x, ins.spot.z) + 7, ins.spot.z + Math.cos(a) * r * 0.8), 1 - Math.exp(-dt * 2));
+    camLook.lerp(v.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z), 1 - Math.exp(-dt * 3));
+  } else if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
     const r = cam.dist * ZOOM, flat = Math.cos(cam.pitch) * r;
     camPos.lerp(v.set(fx1 + Math.sin(cam.yaw) * flat, fy + 1.2 + Math.sin(cam.pitch) * r, fz1 + Math.cos(cam.yaw) * flat), 1 - Math.exp(-dt * 8));
     // look a little past the player (more when the camera is low) so the horizon stays in frame
@@ -409,6 +494,7 @@ function frame() {
   if (fx.shake > 0.01) camera.position.add(v.set((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake));
   camera.lookAt(camLook);
   focusV.set(fx0, fy + 1, fz0);
+  if (ins.phase === 'meeting' && ins.spot) focusV.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z);
   island.update(now / 1000, focusV);
   view.render(focusV, dt, now);
   fpsAcc += dt; fpsN++;
@@ -416,4 +502,4 @@ function frame() {
 }
 renderer.setAnimationLoop(frame);
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { cam, renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, follow, renderer, scene, players, view, fx, island, get me() { return me; } };

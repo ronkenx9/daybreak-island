@@ -42,6 +42,18 @@
         <div class="row"><button class="btn" id="win-collect">Collect</button><button class="btn ghost" id="win-close">Later</button></div>
       </div>
     </div>
+    <div class="insider-banner" id="ins-banner" hidden></div>
+    <div class="panel insider" id="ins-panel" hidden>
+      <div class="label" id="ins-role">INSIDER</div>
+      <div class="ins-body" id="ins-body"></div>
+      <div class="row ins-leak" id="ins-leak" hidden><input id="ins-leak-text" maxlength="90" placeholder="plant a fake rumour..." /><button class="mini" id="ins-leak-btn">Leak</button></div>
+    </div>
+    <div class="meeting" id="meeting" hidden>
+      <div class="meeting-title">EMERGENCY MEETING <span id="meeting-time"></span></div>
+      <div class="meeting-log" id="meeting-log"></div>
+      <div class="meeting-votes" id="meeting-votes"></div>
+    </div>
+    <form class="chat" id="chat" hidden><input id="chat-text" maxlength="120" placeholder="say something... (Enter)" autocomplete="off" /></form>
     <div class="panel board">
       <div class="label">LEADERBOARD</div>
       <ol id="board"></ol>

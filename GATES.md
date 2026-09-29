@@ -142,3 +142,27 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
   CHECK: node scripts/check-visuals.mjs --camera
   EXPECT: CAMERA OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=f37323ecae7e3ebfd3d5002b50f64a7f4529dfdb30c66b2a8b1cdf3bee923121; exit=0; EXPECT=matched; output-sha256=d6b00a59578c434c76c0e18871e594ead8e953ee66855b2629af2b3ba2fe1901; output-bytes=84; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+## Slice 8: real AI agents (overnight)
+
+- [ ] G26: LLM-driven agents (Claude Haiku 4.5 via the Bankr gateway) play through the public API with personas, memory and free choice of actions (hunt, walk to places, watch the sunset, talk, emote, follow others); scripted code only executes their chosen intent. Spending is metered from reported token usage and hard-stops at the $20 cap (agents fall back to scripted brains). Unit test with a stub model: the loop parses decisions, survives bad JSON, and stops calling at the cap.
+  CHECK: node test/ai.mjs
+  EXPECT: AI OK
+  EVIDENCE: pending
+
+- [ ] G27: A live session: 5 AI agents play for 10 minutes on a local server and produce real decisions, speech, finds and a journal of events, with spend recorded.
+  CHECK: node scripts/ai-session-report.mjs --min-decisions 40
+  EXPECT: SESSION OK
+  EVIDENCE: pending
+
+## Slice 9: Insider mode (Among Us for stocks)
+
+- [ ] G28: Insider rounds run on the server: with 4+ players a round deals one secret insider who knows the stock that pumps at the bell; during the hunt, crew digs sometimes reveal true private clues (hat colour, last seen near, chests found) and the insider can plant one fake rumour; then an emergency meeting gathers everyone in a circle, players talk and vote (one vote each, only participants, only during the meeting); the reveal pays the crew if they catch the insider, otherwise the stock pumps and the insider cashes in. Roles and the ticker stay secret from everyone but the insider until the reveal.
+  CHECK: node test/insider.mjs
+  EXPECT: INSIDER OK
+  EVIDENCE: pending
+
+- [ ] G29: AI agents play Insider: they use their clues, accuse, defend and vote in the meeting (the insider agent lies), with a stub model in the test; and humans get a banner, private clue panel, meeting chat and vote buttons in the browser.
+  CHECK: node test/ai.mjs && node scripts/check-visuals.mjs --insider
+  EXPECT: INSIDER UI OK
+  EVIDENCE: pending

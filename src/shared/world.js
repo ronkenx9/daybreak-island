@@ -201,3 +201,5 @@ export function randomLandPoint(rnd, filter = () => true) {
 }
 
 export const SPAWN = (() => { for (let z = 110; z > 40; z--) if (height(pathX(z), z) > 1.4) return { x: pathX(z - 4), z: z - 4 }; return { x: 0, z: 80 }; })();
+// the Insider meeting circle sits around a campfire just inland from spawn
+export const MEETING_SPOT = { x: SPAWN.x, z: SPAWN.z - 6 };

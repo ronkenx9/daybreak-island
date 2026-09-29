@@ -16,6 +16,11 @@ async function soak() {
     pending.set(b.i, { action, t0: clock });
     return Promise.resolve(g.act(b.id, action, args)).then((r) => { pending.delete(b.i); return r; });
   };
+  // Insider meetings: vote skip, then wait (in game time) until it's over
+  async function meeting(b) {
+    g.act(b.id, 'vote', { who: 'skip' });
+    while (g.insider.phase === 'meeting' && clock < SECONDS) await yieldNow();
+  }
   // same treasure-hunting brain as scripts/sim.mjs
   async function brain(b) {
     let heading = Math.random() * Math.PI * 2;
@@ -24,10 +29,11 @@ async function soak() {
       const s = await act(b, 'state');
       if (!s.ok) { problems.push(`soak-${b.i} was removed from the game: ${s.error}`); return; }
       const me = s.you, d = await act(b, 'detect');
-      if (d.bars >= 5) { const r = await act(b, 'dig'); if (r.found) b.found++; continue; }
+      if (d.bars >= 5) { const r = await act(b, 'dig'); if (r.found) b.found++; if (r.error && /meeting/.test(r.error)) await meeting(b); continue; }
       if (d.bars === 0) {
         heading += (Math.random() - 0.5) * 1.6;
         const w = await act(b, 'walk_to', { target: { x: me.x + Math.sin(heading) * 30, z: me.z + Math.cos(heading) * 30 } });
+        if (w.error && /meeting/.test(w.error)) { await meeting(b); continue; }
         if (!w.ok) { heading += Math.PI / 2; if (w.error) b.failed++; }
         continue;
       }

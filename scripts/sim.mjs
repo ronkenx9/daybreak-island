@@ -36,8 +36,21 @@ async function play(i, deadline, tally, setToken) {
   const act = async (action, args) => {
     const r = await post('/api/act', { token: j.token, action, args });
     if (r.error && /token|unknown player/i.test(r.error)) throw new Error(r.error); // server forgot us
+    if (r.error && /emergency meeting/i.test(r.error)) await sitMeeting();
     return r;
   };
+  // Insider meeting: cast a vote (usually a guess, sometimes skip) and wait it out
+  async function sitMeeting() {
+    for (let i = 0; i < 60; i++) {
+      const st = await post('/api/act', { token: j.token, action: 'insider' });
+      if (st.phase !== 'meeting') return;
+      if (!st.myVote && st.role !== 'spectator') {
+        const others = (st.players ?? []).filter((n) => n !== `bot-${i}` && n !== j.name);
+        await post('/api/act', { token: j.token, action: 'vote', args: { who: Math.random() < 0.3 || !others.length ? 'skip' : others[Math.floor(Math.random() * others.length)] } });
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
   let heading = Math.random() * Math.PI * 2;
   await act('say', { text: `bot-${i} reporting for digging` });
   while (Date.now() < deadline) {

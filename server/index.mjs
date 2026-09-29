@@ -9,8 +9,8 @@ import { Game, ACTIONS } from './game.mjs';
 import { openDb } from './db.mjs';
 import { prizePoolFromEnv } from './prizes.mjs';
 
-export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, store = openDb(), prizes = prizePoolFromEnv(store) } = {}) {
-  const game = new Game({ secret, prizes });
+export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, store = openDb(), prizes = prizePoolFromEnv(store), insider = {} } = {}) {
+  const game = new Game({ secret, prizes, insider });
   const tokens = new Map(); // agent token -> player id
   // public-server limits
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 120);

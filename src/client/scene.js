@@ -9,7 +9,7 @@ import {
   mx_noise_float, cameraViewMatrix, abs, screenCoordinate, frameId,
 } from 'three/tsl';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { height, SIZE, MESAS, pathDist } from '../shared/world.js';
+import { height, SIZE, MESAS, pathDist, MEETING_SPOT, groundAt } from '../shared/world.js';
 import { makeNoise } from '../shared/noise.js';
 import { SUN_DIR } from './render.js';
 
@@ -383,6 +383,49 @@ function props(treeSpots) {
   return { meshes };
 }
 
+// the campfire at the Insider meeting circle: logs, stones, flickering flames that bloom, embers, a warm light
+function campfire() {
+  const g = new THREE.Group();
+  const y = groundAt(MEETING_SPOT.x, MEETING_SPOT.z);
+  g.position.set(MEETING_SPOT.x, y, MEETING_SPOT.z);
+  const wood = new THREE.MeshLambertNodeMaterial({ color: '#5b3a24' });
+  for (let k = 0; k < 4; k++) {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.1, 7), wood);
+    log.rotation.set(Math.PI / 2 - 0.35, (k / 4) * Math.PI * 2, 0, 'YXZ');
+    log.position.set(Math.sin((k / 4) * Math.PI * 2) * 0.22, 0.25, Math.cos((k / 4) * Math.PI * 2) * 0.22);
+    log.castShadow = true;
+    g.add(log);
+  }
+  const stoneGeo = lumpy(new THREE.DodecahedronGeometry(0.18, 0), 0.2, 90);
+  const stones = new THREE.InstancedMesh(stoneGeo, new THREE.MeshLambertNodeMaterial({ color: '#c9c2d6' }), 12);
+  const d = new THREE.Object3D();
+  for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; d.position.set(Math.sin(a) * 0.85, 0.05, Math.cos(a) * 0.85); d.rotation.set(k, k * 2, 0); d.scale.setScalar(0.8 + (k % 3) * 0.2); d.updateMatrix(); stones.setMatrixAt(k, d.matrix); }
+  g.add(stones);
+  // flames: a few cones that flicker in the vertex shader; HDR colour so they bloom
+  const flameMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const phase = hash(instanceIndex).mul(6.28);
+  const flick = sin(uTime.mul(11).add(phase)).mul(0.12).add(sin(uTime.mul(17).add(phase.mul(2))).mul(0.08)).add(1);
+  flameMat.positionNode = positionLocal.mul(vec3(1, flick, 1)).add(vec3(sin(uTime.mul(6).add(phase)).mul(0.04).mul(positionLocal.y), 0, 0));
+  flameMat.colorNode = mix(vec3(3.2, 1.1, 0.25), vec3(4.0, 2.8, 0.9), smoothstep(0.0, 0.6, positionLocal.y.negate().add(0.6)));
+  flameMat.opacityNode = float(0.85);
+  const flames = new THREE.InstancedMesh(new THREE.ConeGeometry(0.16, 0.75, 7).translate(0, 0.37, 0), flameMat, 5);
+  for (let k = 0; k < 5; k++) { d.position.set(Math.sin(k * 1.3) * 0.12 * (k > 0), 0.2, Math.cos(k * 1.3) * 0.12 * (k > 0)); d.rotation.set(0, k, 0); d.scale.setScalar(k === 0 ? 1.25 : 0.7 + (k % 2) * 0.2); d.updateMatrix(); flames.setMatrixAt(k, d.matrix); }
+  g.add(flames);
+  // embers drifting up
+  const emberMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const seed = hash(instanceIndex.add(7));
+  const life = fract(uTime.mul(0.35).add(seed));
+  emberMat.positionNode = positionLocal.add(vec3(sin(seed.mul(40).add(uTime)).mul(0.35).mul(life), life.mul(3.2).add(0.4), cos(seed.mul(31).add(uTime)).mul(0.35).mul(life)));
+  emberMat.colorNode = vec3(3.5, 1.6, 0.4).mul(float(1).sub(life));
+  const embers = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.025, 0), emberMat, 24);
+  for (let k = 0; k < 24; k++) { d.position.set(0, 0, 0); d.rotation.set(0, 0, 0); d.scale.setScalar(1); d.updateMatrix(); embers.setMatrixAt(k, d.matrix); }
+  g.add(embers);
+  const light = new THREE.PointLight('#ff8a3d', 18, 14, 2);
+  light.position.set(0, 1.1, 0);
+  g.add(light);
+  return { group: g, update: (t) => { light.intensity = 16 + Math.sin(t * 13) * 2.5 + Math.sin(t * 29) * 1.5; } };
+}
+
 function mesas(scene) {
   // a flag on every company mesa
   for (const m of MESAS) {
@@ -411,11 +454,13 @@ export function buildIsland(scene) {
   const grass = grassField(); scene.add(grass.mesh);
   const dust = motes(); scene.add(dust.mesh);
   scene.add(clouds());
+  const fire = campfire(); scene.add(fire.group);
   mesas(scene);
   return {
     grass,
     update(time, focus) {
       uTime.value = time;
+      fire.update(time);
       grass.uFocus.value.set(focus.x, focus.z);
       dust.uFocus.value.set(focus.x, focus.z);
     },
