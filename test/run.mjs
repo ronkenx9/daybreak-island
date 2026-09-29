@@ -31,8 +31,10 @@ await test('detector rises toward a chest and dig claims it', async () => {
   const c = g.chests[0];
   p.x = c.x + 20; p.z = c.z; // far
   const far = g.act(p.id, 'detect');
+  g.t += 0.3; // readings refresh at most 4x a second
   p.x = c.x + 6;
   const mid = g.act(p.id, 'detect');
+  g.t += 0.3;
   p.x = c.x + 1; p.z = c.z;
   const near = g.act(p.id, 'detect');
   assert.ok(far.signal <= mid.signal && mid.signal < near.signal);

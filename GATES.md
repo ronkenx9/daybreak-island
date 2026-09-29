@@ -135,3 +135,10 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
   CHECK: node scripts/perf.mjs
   EXPECT: PERF OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=c75e17706f6438f6e04faa9ce95723a19cadd56172bc2617d9671dc1226f4965; exit=0; EXPECT=matched; output-sha256=58483ea2e856b073b775c337710ee13da552a6e03adcf49db8f8ba86b03de2ed; output-bytes=69; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+## Slice 7: free camera
+
+- [x] G25: The player can move the camera: dragging orbits around the character (and tilts within limits), the wheel zooms within limits, C puts the camera straight behind the character; third-person steering (A/D turn on the spot, W walks where the character looks) with a follow camera that rides behind the character.
+  CHECK: node scripts/check-visuals.mjs --camera
+  EXPECT: CAMERA OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=f37323ecae7e3ebfd3d5002b50f64a7f4529dfdb30c66b2a8b1cdf3bee923121; exit=0; EXPECT=matched; output-sha256=d6b00a59578c434c76c0e18871e594ead8e953ee66855b2629af2b3ba2fe1901; output-bytes=84; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

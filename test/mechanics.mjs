@@ -81,5 +81,17 @@ await test('real prizes are not multiplied by streaks (only made-up loot)', asyn
   assert.equal(r.realPrize, undefined, 'no prize pool in this game, so no real prize at all');
 });
 
+await test('face turns a standing player on the spot; walking takes over', async () => {
+  const g = new Game({ secret: 'm6' });
+  const p = g.join({ name: 'turner' });
+  assert.equal((await g.act(p.id, 'face', { heading: 1.2 })).ok, true);
+  run(g, 1);
+  assert.ok(Math.abs(p.heading - 1.2) < 0.02, `heading ${p.heading}`);
+  const x0 = p.x, z0 = p.z;
+  run(g, 0.5);
+  assert.equal(p.x, x0); assert.equal(p.z, z0);
+  assert.equal((await g.act(p.id, 'face', { heading: 'north' })).ok, false);
+});
+
 console.log(`${n} tests\nMECHANICS OK`);
 process.exit(0);

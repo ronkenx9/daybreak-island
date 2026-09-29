@@ -118,24 +118,78 @@ setInterval(refreshBoard, 2000);
 // ---------------------------------------------------------------- input (same actions agents use)
 const keys = new Set();
 let lastMove = '';
+
+// ---------------------------------------------------------------- free camera: drag to orbit, wheel/pinch to zoom, C to reset
+// yaw: which side of the player the camera sits on (0 = south of them, PI = north, looking south to the sunset)
+const CAM_DEFAULT = { yaw: Math.PI - 0.11, pitch: 0.41, dist: 11.5 };
+const cam = { ...CAM_DEFAULT };
+let lastDrag = -1e9; // after you drag the view, the follow camera waits a moment before swinging back
+let myHeading = null; // the way your character looks: A/D turn it, W walks along it
+function resetView() {
+  Object.assign(cam, CAM_DEFAULT);
+  const f = players.get(watchId ?? me);
+  if (f) cam.yaw = (myHeading ?? f.cur.h) + Math.PI; // straight behind, looking where the character looks
+}
+const clampCam = () => { cam.pitch = Math.min(1.35, Math.max(0.06, cam.pitch)); cam.dist = Math.min(32, Math.max(4.5, cam.dist)); };
+{
+  const el = renderer.domElement;
+  el.style.touchAction = 'none';
+  const pts = new Map();
+  let pinch = 0;
+  el.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); el.setPointerCapture(e.pointerId); el.style.cursor = 'grabbing'; });
+  el.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    lastDrag = performance.now();
+    if (pts.size === 1) {
+      cam.yaw -= (e.clientX - p.x) * 0.006;
+      cam.pitch += (e.clientY - p.y) * 0.005;
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch) cam.dist *= pinch / Math.max(1, d);
+      pinch = d;
+    }
+    p.x = e.clientX; p.y = e.clientY;
+    clampCam();
+  });
+  const up = (e) => { pts.delete(e.pointerId); pinch = 0; lastDrag = performance.now(); if (!pts.size) el.style.cursor = 'grab'; };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist *= Math.exp(e.deltaY * 0.0012); clampCam(); }, { passive: false });
+  el.style.cursor = 'grab';
+}
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   keys.add(e.code);
+  if (e.code === 'KeyC') resetView();
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
   if (e.code === 'Space') { e.preventDefault(); startSweep(); }
   if (e.code === 'KeyE' || e.code === 'KeyF') dig();
   if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); }
+  if (e.code === 'KeyC') resetView();
   if (e.code.startsWith('Digit')) { const em = ['wave', 'cheer', 'dance', 'sad', 'shrug'][Number(e.code.slice(5)) - 1]; if (em) act('emote', { name: em }); }
 });
 addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'Space') stopSweep(); });
 addEventListener('blur', () => { keys.clear(); stopSweep(); });
-function sendMove() {
+// third-person steering: A/D turn your character, W walks where they look, S steps back.
+// The camera rides behind and turns with them (see the camera section in frame()).
+let lastFace = 0;
+const steer = { fwd: 0, turn: 0 };
+function sendMove(dt) {
   if (!me) return;
-  // screen-relative: the camera looks south (+z), so 'up' walks toward the sea
-  const dx = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0);
-  const dz = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  const p = players.get(me);
+  if (!p) return;
+  myHeading ??= p.cur.h;
+  steer.fwd = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  steer.turn = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0);
+  if (!steer.fwd && !steer.turn) myHeading = p.cur.h; // not steering: the server's facing is the truth
+  myHeading += steer.turn * 2.4 * dt;
+  const dx = +(Math.sin(myHeading) * steer.fwd).toFixed(2), dz = +(Math.cos(myHeading) * steer.fwd).toFixed(2);
   const k = `${dx},${dz}`;
   if (k !== lastMove) { lastMove = k; act('move', { dx, dz }); }
+  // turning on the spot: tell the server which way you face (a few times a second)
+  const now = performance.now();
+  if (steer.turn && !steer.fwd && now - lastFace > 120) { lastFace = now; act('face', { heading: myHeading }); }
 }
 // hold Space: the detector keeps sweeping and beeping, faster and higher as you close in
 let sweeping = false, sweepTimer = null;
@@ -299,7 +353,7 @@ let last = performance.now(), fpsAcc = 0, fpsN = 0;
 function frame() {
   const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  sendMove();
+  sendMove(dt);
   fxPlayers.length = 0;
   for (const [id, p] of players) {
     const k = 1 - Math.exp(-dt * 12);
@@ -332,9 +386,17 @@ function frame() {
   const fx0 = focus ? focus.cur.x : 0, fz0 = focus ? focus.cur.z : 60, fy = focus ? focus.cur.y : 2;
   const lead = focus && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05 ? 1.6 : 0;
   const fx1 = fx0 + (focus ? Math.sin(focus.cur.h) * lead : 0), fz1 = fz0 + (focus ? Math.cos(focus.cur.h) * lead : 0);
+  const behind = (h, rate) => { let d = h + Math.PI - cam.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); cam.yaw += d * (1 - Math.exp(-dt * rate)); };
+  if (focus && now - lastDrag > 1200) {
+    if (focus === players.get(me) && myHeading !== null) { if (steer.fwd > 0 || steer.turn) behind(myHeading, steer.turn ? 6 : 2.5); }
+    else if (watchId && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05) behind(focus.cur.h, 1.8);
+  }
   if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
-    camPos.lerp(v.set(fx1 + 1.2 * ZOOM, fy + 4.6 * ZOOM, fz1 - 10.5 * ZOOM), 1 - Math.exp(-dt * 3.5));
-    camLook.lerp(v.set(fx1, fy + 2.6, fz1 + 4), 1 - Math.exp(-dt * 5));
+    const r = cam.dist * ZOOM, flat = Math.cos(cam.pitch) * r;
+    camPos.lerp(v.set(fx1 + Math.sin(cam.yaw) * flat, fy + 1.2 + Math.sin(cam.pitch) * r, fz1 + Math.cos(cam.yaw) * flat), 1 - Math.exp(-dt * 8));
+    // look a little past the player (more when the camera is low) so the horizon stays in frame
+    const ahead = 4 * (1 - cam.pitch / 1.35);
+    camLook.lerp(v.set(fx1 - Math.sin(cam.yaw) * ahead, fy + 1.4 + (1 - cam.pitch / 1.35) * 1.2, fz1 - Math.cos(cam.yaw) * ahead), 1 - Math.exp(-dt * 8));
   }
   // never let the ground get between the camera and the player: lift over any hill on the way
   let lift = 0;
@@ -354,4 +416,4 @@ function frame() {
 }
 renderer.setAnimationLoop(frame);
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, renderer, scene, players, view, fx, island, get me() { return me; } };

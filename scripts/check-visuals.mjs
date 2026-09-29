@@ -13,6 +13,7 @@ const TIERS = process.argv.includes('--tiers');
 const MECH = process.argv.includes('--mechanics');
 const POLISH = process.argv.includes('--polish');
 const BACKENDS = process.argv.includes('--backends');
+const CAMERA = process.argv.includes('--camera');
 const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
 const PORT = 5297, wait = (ms) => new Promise((r) => setTimeout(r, ms));
 execFileSync('npx', ['vite', 'build'], { stdio: 'ignore' });
@@ -44,7 +45,43 @@ await wait(2500);
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
 
-if (BACKENDS) {
+if (CAMERA) {
+  const view = () => page.evaluate(() => { const d = window.__dbi, p = d.players.get(d.me).cur, c = d.view.camera.position; return { yaw: Math.atan2(c.x - p.x, c.z - p.z), dist: Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z), camYaw: d.cam.yaw, camDist: d.cam.dist }; });
+  const angle = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const v0 = await view();
+  await page.mouse.move(640, 420); await page.mouse.down(); await page.mouse.move(840, 400, { steps: 12 }); await page.mouse.up();
+  await wait(900);
+  const v1 = await view();
+  check(angle(v1.yaw, v0.yaw) > 0.8, `drag orbits the camera (${v0.yaw.toFixed(2)} -> ${v1.yaw.toFixed(2)})`);
+  await page.mouse.move(640, 420); await page.mouse.wheel({ deltaY: 500 });
+  await wait(900);
+  const v2 = await view();
+  check(v2.dist > v1.dist * 1.4, `wheel zooms out (${v1.dist.toFixed(1)} -> ${v2.dist.toFixed(1)})`);
+  await page.mouse.move(640, 420); await page.mouse.down(); await page.mouse.move(640, 1400, { steps: 12 }); await page.mouse.up();
+  const tilted = await page.evaluate(() => window.__dbi.cam.pitch);
+  check(tilted <= 1.35 + 1e-6, `tilt stays within limits (${tilted.toFixed(2)})`);
+  await page.screenshot({ path: 'evidence/camera-orbit.png' });
+  await page.keyboard.press('KeyC');
+  await wait(900);
+  const v3 = await view();
+  check(angle(v3.camYaw, me.heading + Math.PI) < 0.05 && Math.abs(v3.camDist - v0.camDist) < 0.01, `C puts the camera straight behind the character (${angle(v3.camYaw, me.heading + Math.PI).toFixed(2)})`);
+  // follow camera: turn with D, then walk with W; the camera swings round to stay behind
+  await wait(1400); // let the follow camera take over again after the drags
+  const h0 = me.heading;
+  await page.keyboard.down('KeyD'); await wait(700); await page.keyboard.up('KeyD'); await wait(600);
+  const turned = angle(me.heading, h0);
+  check(turned > 0.8, `D turns the character on the spot (${turned.toFixed(2)} rad)`);
+  const a = { x: me.x, z: me.z };
+  await page.keyboard.down('KeyW'); await wait(1500);
+  const mid = await page.evaluate(() => { const d = window.__dbi, p = d.players.get(d.me).cur, c = d.view.camera.position; return { cx: c.x - p.x, cz: c.z - p.z }; });
+  await page.keyboard.up('KeyW'); await wait(300);
+  const dx = me.x - a.x, dz = me.z - a.z, len = Math.hypot(dx, dz);
+  const walkDir = Math.atan2(dx, dz), camDir = Math.atan2(mid.cx, mid.cz);
+  check(len > 2 && angle(walkDir, me.heading) < 0.3, `W walks where the character looks (moved ${len.toFixed(1)}m)`);
+  check(angle(camDir, walkDir + Math.PI) < 0.45, `camera rides behind the character (off by ${angle(camDir, walkDir + Math.PI).toFixed(2)} rad)`);
+  await page.screenshot({ path: 'evidence/camera-follow.png' });
+  console.log(`yaw ${v0.yaw.toFixed(2)}->${v1.yaw.toFixed(2)} dist ${v1.dist.toFixed(1)}->${v2.dist.toFixed(1)} walked ${len.toFixed(1)}m, camera behind within ${angle(camDir, walkDir + Math.PI).toFixed(2)} rad`);
+} else if (BACKENDS) {
   // this run: whichever backend the page picked; the webgl run is a second invocation (see below)
   const info = await page.evaluate(() => window.__dbi.view.info());
   check(info.backend === (QS ? 'webgl' : 'webgpu'), `backend ${info.backend}`);
@@ -170,6 +207,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

@@ -79,7 +79,7 @@ export class Game {
     const clean = String(name ?? '').replace(/[^\w .-]/g, '').slice(0, 20) || `${kind}-${id}`;
     const p = {
       id, name: clean, kind, look: LOOKS.includes(look) ? look : LOOKS[this.players.size % LOOKS.length],
-      x: SPAWN.x + (this.rnd() - 0.5) * 6, z: SPAWN.z + (this.rnd() - 0.5) * 6, heading: Math.PI,
+      x: SPAWN.x + (this.rnd() - 0.5) * 6, z: SPAWN.z + (this.rnd() - 0.5) * 6, heading: 0, // facing the sea (and the sunset)
       move: null, path: null, pathWaiters: [], anim: 'idle', say: null, sayT: 0, emote: null, emoteT: 0,
       dig: null, detect: { signal: 0, bars: 0, t: 0, at: null }, portfolio: {}, found: 0, lastSeen: this.now(), stuckT: 0, wallet: null, streak: 0,
     };
@@ -126,6 +126,13 @@ export class Game {
         return { ok: true };
       }
       case 'stop': this.cancelPath(p, 'stopped'); p.move = null; return { ok: true };
+      case 'face': {
+        // turn on the spot (third-person steering); walking also turns you
+        const h = Number(args.heading);
+        if (!Number.isFinite(h)) return { ok: false, error: 'heading (radians) required' };
+        p.faceTo = Math.atan2(Math.sin(h), Math.cos(h));
+        return { ok: true };
+      }
       case 'walk_to': {
         const t = this.resolveTarget(args.target ?? args);
         if (!t) return { ok: false, error: 'unknown target', landmarks: this.landmarks().map((l) => l.name) };
@@ -272,6 +279,7 @@ export class Game {
         else dir = { dx: dx / d, dz: dz / d };
       } else if (p.move) dir = p.move;
       if (dir) {
+        p.faceTo = null;
         const want = Math.atan2(dir.dx, dir.dz);
         let dh = want - p.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
         p.heading += dh * Math.min(1, dt * 12);
@@ -286,7 +294,13 @@ export class Game {
           p.stuckT += dt;
           if (p.path && p.stuckT > 2) { this.cancelPath(p, 'blocked'); p.stuckT = 0; }
         } else p.stuckT = 0;
-      } else if (p.anim === 'walk') p.anim = 'idle';
+      } else {
+        if (p.anim === 'walk') p.anim = 'idle';
+        if (p.faceTo !== undefined && p.faceTo !== null) {
+          let dh = p.faceTo - p.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+          p.heading += dh * Math.min(1, dt * 12);
+        }
+      }
       p.y = groundAt(p.x, p.z);
     }
     // holes fade after 3 minutes
@@ -352,4 +366,4 @@ export class Game {
   }
 }
 
-export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'walk_to', 'detect', 'dig', 'say', 'emote', 'link_wallet_challenge', 'link_wallet', 'prizes'];
+export const ACTIONS = ['state', 'look', 'landmarks', 'leaderboard', 'move', 'stop', 'face', 'walk_to', 'detect', 'dig', 'say', 'emote', 'link_wallet_challenge', 'link_wallet', 'prizes'];
