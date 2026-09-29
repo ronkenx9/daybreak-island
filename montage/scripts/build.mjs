@@ -31,6 +31,14 @@ const meeting = byScore.filter((m) => m.meeting && m.kind === 'say' && !used.has
 meeting.forEach((m) => used.add(m.file));
 const reveal = [...journal].reverse().find((e) => e.kind === 'reveal' && e.outcome && e.outcome !== 'void');
 const revealShot = meeting.at(-1) ?? hunt.at(-1);
+const count = (k, pred = () => true) => journal.filter((e) => e.kind === k && pred(e)).length;
+const spend = existsSync('../data/ai-spend.json') ? JSON.parse(readFileSync('../data/ai-spend.json', 'utf8')) : null;
+const stats = [
+  { n: count('decision') + count('meeting'), label: 'decisions made by the AIs' },
+  { n: count('find'), label: 'chests dug up' },
+  { n: count('junk'), label: 'pieces of junk (boots, ducks, receipts)' },
+  { n: count('say', (e) => e.meeting), label: 'lines of arguing in meetings' },
+];
 
 mkdirSync('assets/clips', { recursive: true });
 const local = (m) => { const f = `assets/clips/${basename(m.file)}`; if (!existsSync(f)) copyFileSync(m.file.startsWith('/') ? m.file : `../${m.file}`, f); return f; };
@@ -61,6 +69,9 @@ if (revealShot) {
   texts.push({ kind: 'reveal', start: t + 0.4, dur: SHOT - 0.5, line: reveal ? (reveal.outcome === 'caught' ? `${reveal.insider} was the insider. Caught.` : `${reveal.insider} was the insider. Got away with it.`) : 'Who was it? Come find out.' });
   t += SHOT;
 }
+const STATS = 2 * BAR;
+cards.push({ id: 'card-stats', start: t, dur: STATS, big: 'One night.', small: spend ? `AI cost for the whole night: $${spend.spent.toFixed(2)}` : '', tone: 'stats' });
+t += STATS;
 const END = 3 * BAR;
 cards.push({ id: 'card-end', start: t, dur: END, big: 'Come play with them.', small: 'daybreak-island.vercel.app', tone: 'end' });
 t += END;
@@ -74,7 +85,7 @@ const textHtml = texts.map((x, i) => {
   if (x.kind === 'quote') return `      <div id="q-${i}" class="clip overlay" data-start="${x.start}" data-duration="${x.dur}" data-track-index="3" data-layout-allow-caption-zone="true"><div class="quote"><div class="speaker"><span class="mic">EMERGENCY MEETING</span><span class="who">${esc(x.who)}</span></div><div class="said">“${esc(x.line)}”</div></div></div>`;
   return `      <div id="reveal" class="clip overlay" data-start="${x.start}" data-duration="${x.dur}" data-track-index="3"><div class="reveal-block"><div class="kicker">THE REVEAL</div><div class="reveal-line">${esc(x.line)}</div></div></div>`;
 }).join('\n');
-const cardHtml = cards.map((c) => `      <div id="${c.id}" class="clip card ${c.tone}" data-start="${c.start}" data-duration="${c.dur}" data-track-index="2"><div class="glow"></div><div class="ghost" aria-hidden="true" data-layout-ignore>${c.tone === 'red' ? 'INSIDER' : 'DAYBREAK'}</div><div class="card-inner"><div class="big">${esc(c.big)}</div><div class="rule"></div><div class="small">${esc(c.small)}</div>${c.tone === 'end' ? '<div class="meta">Humans and AI agents welcome · play in the browser · agents join over MCP or HTTP</div>' : ''}</div></div>`).join('\n');
+const cardHtml = cards.map((c) => `      <div id="${c.id}" class="clip card ${c.tone}" data-start="${c.start}" data-duration="${c.dur}" data-track-index="2"><div class="glow"></div><div class="ghost" aria-hidden="true" data-layout-ignore>${c.tone === 'red' ? 'INSIDER' : 'DAYBREAK'}</div><div class="card-inner"><div class="big">${esc(c.big)}</div><div class="rule"></div><div class="small">${esc(c.small)}</div>${c.tone === 'stats' ? `<div class="stats">${stats.map((x, k) => `<div class="stat"><div class="num" id="stat-${k}" data-n="${x.n}">0</div><div class="lbl">${esc(x.label)}</div></div>`).join('')}</div>` : ''}${c.tone === 'end' ? '<div class="meta">Humans and AI agents welcome · play in the browser · agents join over MCP or HTTP</div>' : ''}</div></div>`).join('\n');
 
 const html = `<!doctype html>
 <html lang="en">
@@ -123,6 +134,11 @@ const html = `<!doctype html>
       .small { font-size: 44px; line-height: 1.3; max-width: 1400px; }
       .card.end .small { color: var(--sun); font-weight: 700; font-size: 64px; }
       .meta { margin-top: 26px; font-size: 30px; opacity: 0.85; }
+      .card.stats .big { font-size: 150px; }
+      .card.stats .small { color: var(--sun); font-weight: 700; }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; margin-top: 48px; }
+      .stat .num { font-family: "League Gothic", sans-serif; font-size: 150px; line-height: 1; color: var(--fg); }
+      .stat .lbl { font-size: 26px; line-height: 1.3; margin-top: 8px; max-width: 360px; }
     </style>
   </head>
   <body>
@@ -161,6 +177,14 @@ ${textHtml}
           tl.fromTo("#reveal .kicker", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.5, ease: "power2.out" }, x.start);
           tl.fromTo("#reveal .reveal-line", { opacity: 0, scale: 1.12 }, { opacity: 1, scale: 1, duration: 0.6, ease: "expo.out" }, x.start + 0.2);
         }
+      });
+      // stats count up
+      document.querySelectorAll(".stat .num").forEach((el, k) => {
+        const card = ${JSON.stringify(cards)}.find((c) => c.id === "card-stats");
+        if (!card) return;
+        const target = Number(el.dataset.n), obj = { v: 0 };
+        tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, card.start + 0.3 + k * 0.15);
+        tl.to(obj, { v: target, duration: 1.4, ease: "power2.out", onUpdate: () => { el.textContent = Math.round(obj.v).toLocaleString("en-US"); } }, card.start + 0.3 + k * 0.15);
       });
       window.__timelines["main"] = tl;
     </script>

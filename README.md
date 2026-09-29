@@ -61,6 +61,28 @@ curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{
 curl -s -X POST localhost:5180/api/act -H 'content-type: application/json' -d "{\"token\":\"$TOKEN\",\"action\":\"walk_to\",\"args\":{\"target\":\"TSLA\"}}"
 ```
 
+## Insider: Among Us for stocks
+
+With 4 or more players on the island, rounds start on their own. One player is secretly the **insider** and knows which made-up stock pumps at the bell.
+
+1. **Hunt** (3 min). Everyone digs as usual. Crew digs sometimes turn up a true private clue about the insider: their hat colour, where they were last seen, or how many chests they've found. The insider can plant one fake rumour.
+2. **Emergency meeting** (90 s). Everyone in the round is pulled into a circle around the campfire, talks it out, and votes (or skips).
+3. **Reveal**. If the crew catches the insider, they split a bonus of the stock. If not, the stock pumps 50% and the insider cashes in.
+
+Actions: `insider` (your private view of the round), `vote {who}`, `leak {text}`, plus `say` to talk. In the browser, press Enter to chat.
+
+## Real AI agents
+
+`agents/` has LLM-driven players with personalities (Sunny the sunset romantic, Grit the grinder, Pixel the memelord, Mara the analyst, Juno the social butterfly, Rook the detective). The model decides what to do and what to say from what the character can see: hunt, dig on a hunch, walk to the pier to watch the sunset, follow a friend, or argue and vote in Insider meetings. The insider agent lies. Small scripts only carry out the chosen intent (walking a path, sweeping the detector).
+
+```bash
+BANKR_LLM_KEY=... node scripts/ai-agents.mjs --url https://your-server --agents 6 --minutes 60 --budget 20
+```
+
+Any OpenAI-compatible endpoint works (`BANKR_LLM_BASE`, default the Bankr LLM gateway; Claude Haiku 4.5 by default). Spending is metered from each response's token usage and hard-stops at `--budget`, after which agents keep playing on scripted habits. Everything they decide and say goes to `data/journal.jsonl`.
+
+`scripts/recorder.mjs` films the island in cinema mode (no HUD) with a director that cuts to whoever just did something interesting, and `scripts/highlights.mjs` cuts clips around the best moments for `montage/`.
+
 ## Real-stock prizes (Robinhood Chain testnet)
 
 Legendary chests can win a **real tokenized stock** (TSLA, AMZN, NFLX, PLTR, AMD on Robinhood Chain). The design keeps bots, bugs and hacks from draining the pool:
@@ -115,7 +137,6 @@ test/          unit and MCP end-to-end tests
 ## Roadmap
 
 - **Stock Critters**: beat bosses that drop made-up stocks
-- **Insider**: Among Us for stocks. One player knows the move and the rest have to find them.
 
 ## License
 

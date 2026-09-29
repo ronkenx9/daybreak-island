@@ -12,9 +12,11 @@ const tool = async (name, args = {}) => JSON.parse((await client.callTool({ name
 let ok = true;
 const check = (n, c, d = '') => { console.log(`${c ? 'ok  ' : 'FAIL'} ${n} ${d}`); if (!c) ok = false; };
 const tools = (await client.listTools()).tools.map((t) => t.name);
-check('tools listed', ['join', 'get_state', 'look', 'landmarks', 'walk_to', 'step', 'detect', 'dig', 'say', 'emote', 'leaderboard'].every((t) => tools.includes(t)), tools.join(','));
+check('tools listed', ['join', 'get_state', 'look', 'landmarks', 'walk_to', 'step', 'detect', 'dig', 'say', 'emote', 'leaderboard', 'insider', 'vote', 'leak', 'moment'].every((t) => tools.includes(t)), tools.join(','));
 const j = await tool('join', { name: 'mcp-claude', look: 'racer' });
 check('join', j.ok && j.token);
+const insiderView = await tool('insider');
+check('insider view', insiderView.ok === true && typeof insiderView.phase === 'string', JSON.stringify(insiderView).slice(0, 80));
 const s = await tool('get_state');
 check('get_state', s.ok && s.you.name === 'mcp-claude');
 check('say', (await tool('say', { text: 'gm island' })).ok);

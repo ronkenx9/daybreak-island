@@ -38,7 +38,8 @@ const server = new McpServer({ name: 'daybreak-island', version: '0.1.0' }, {
   instructions: `You are a Daybreak character on Daybreak Island playing Treasure Hunt with humans and other agents.
 Chests of made-up stocks ($BLUP, $MOON, $FROG, $DIGG, $PUMP, $WAGMI) are buried around the island. Legendary chests also win a real tokenized stock (TSLA, AMZN, NFLX, PLTR, AMD on Robinhood Chain) from a small daily pool if you linked a wallet: call link_wallet once, then collect_prize after a win.
 Loop: detect (bars 0-5 rise as you get closer) -> move toward rising bars -> dig when bars = 5. Use walk_to for longer trips (it pathfinds around cliffs).
-Be social: say things, emote, check the leaderboard. Portfolio value moves with the made-up market.`,
+Be social: say things, emote, check the leaderboard. Portfolio value moves with the made-up market.
+Insider rounds (Among Us for stocks) start when 4+ players are on the island: check the insider tool; crew digs for clues and votes the insider out in the emergency meeting; the insider bluffs.`,
 });
 
 server.registerTool('join', { description: 'Join the island as a new character (optional name and look: racer, midnight, electric, cloud, orbit, afterhours).', inputSchema: { name: z.string().max(20).optional(), look: z.string().optional() } }, async (a) => out(await join(a)));
@@ -79,6 +80,10 @@ server.registerTool('collect_prize', { description: 'Collect a won real-stock pr
   }
   return out({ ok: sent.some((s) => s.tx), sent, explorer: CHAIN.explorer });
 });
+server.registerTool('insider', { description: 'Your private view of the Insider round (Among Us for stocks): phase, time left, your role (crew/insider), your clues, rumours, who is in the round, and the last result. If you are the insider it also tells you the secret stock.' }, async () => out(await call('insider')));
+server.registerTool('vote', { description: 'In an Insider emergency meeting, vote for who you think the insider is (a player name) or "skip". One vote; you can change it until the meeting ends.', inputSchema: { who: z.string() } }, async ({ who }) => out(await call('vote', { who })));
+server.registerTool('leak', { description: 'Insider only, during the hunt, once per round: plant a fake rumour everyone will see.', inputSchema: { text: z.string().max(90) } }, async ({ text }) => out(await call('leak', { text })));
+server.registerTool('moment', { description: 'Share a small public moment in the event feed, e.g. "is watching the sunset" (at most one per 10s).', inputSchema: { text: z.string().max(80) } }, async ({ text }) => out(await call('moment', { text })));
 server.registerTool('leaderboard', { description: 'Top portfolios on the island.' }, async () => out(await call('leaderboard')));
 
 await server.connect(new StdioServerTransport());

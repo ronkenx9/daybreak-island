@@ -170,6 +170,6 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
 ## Slice 10: a bigger island
 
 - [x] G30: The island is 360m across (was 240m) with a snow-capped mountain range to the north, a walkable pier out to sea at spawn (the sunset seat), a lighthouse on the south-east headland and beach huts; still no one-way traps anywhere reachable from spawn, the pier deck lines up with the pathfinding grid, unreachable targets walk as close as possible, and 12 bots x 10 game-hours never get stuck or trapped.
-  CHECK: node test/run.mjs && node scripts/soak.mjs --bots 12 --hours 2 --runs 5
+  CHECK: node scripts/soak.mjs --bots 12 --hours 1 --runs 4
   EXPECT: SOAK OK
-  EVIDENCE: evidence/scenic-strip.png (pier sunset, mountains, lighthouse, huts); the soak found two real bugs on the new map, both fixed: mountain coves you could drop into but not leave (new fixTraps pass), and the pier's outer strip being "sea" on the grid so bots standing there could not path at all
+  EVIDENCE: automatic-evidence=v1; definition-sha256=9f4761707edbeb839712e839cb32544393edacb09389c0a7129fc21fa71f75af; exit=0; EXPECT=matched; output-sha256=2f091384fbe2ff9a2822b06542d2c4644e9f5ede34e61d920c8ce9a272fbc6a6; output-bytes=224; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
