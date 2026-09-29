@@ -5,6 +5,7 @@
 // "One of them is lying." | meeting shots | reveal | end card.
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const CLIPS = arg('clips', '../data/night/clips'), JOURNAL = arg('journal', '../data/night/journal.jsonl');
@@ -29,7 +30,9 @@ const hunt = [
 ].filter(Boolean).slice(0, 5);
 const meeting = byScore.filter((m) => m.meeting && m.kind === 'say' && !used.has(m.file)).slice(0, 6).sort((a, b) => a.t - b.t);
 meeting.forEach((m) => used.add(m.file));
-const reveal = [...journal].reverse().find((e) => e.kind === 'reveal' && e.outcome && e.outcome !== 'void');
+// prefer a round where one of the AI agents was the insider (bots are scripted)
+const reveals = journal.filter((e) => e.kind === 'reveal' && e.outcome && e.outcome !== 'void');
+const reveal = [...reveals].reverse().find((e) => !/^bot-/.test(e.insider)) ?? reveals.at(-1);
 const revealShot = meeting.at(-1) ?? hunt.at(-1);
 const count = (k, pred = () => true) => journal.filter((e) => e.kind === k && pred(e)).length;
 const spend = existsSync('../data/ai-spend.json') ? JSON.parse(readFileSync('../data/ai-spend.json', 'utf8')) : null;
@@ -85,7 +88,7 @@ const textHtml = texts.map((x, i) => {
   if (x.kind === 'quote') return `      <div id="q-${i}" class="clip overlay" data-start="${x.start}" data-duration="${x.dur}" data-track-index="3" data-layout-allow-caption-zone="true"><div class="quote"><div class="speaker"><span class="mic">EMERGENCY MEETING</span><span class="who">${esc(x.who)}</span></div><div class="said">“${esc(x.line)}”</div></div></div>`;
   return `      <div id="reveal" class="clip overlay" data-start="${x.start}" data-duration="${x.dur}" data-track-index="3"><div class="reveal-block"><div class="kicker">THE REVEAL</div><div class="reveal-line">${esc(x.line)}</div></div></div>`;
 }).join('\n');
-const cardHtml = cards.map((c) => `      <div id="${c.id}" class="clip card ${c.tone}" data-start="${c.start}" data-duration="${c.dur}" data-track-index="2"><div class="glow"></div><div class="ghost" aria-hidden="true" data-layout-ignore>${c.tone === 'red' ? 'INSIDER' : 'DAYBREAK'}</div><div class="card-inner"><div class="big">${esc(c.big)}</div><div class="rule"></div><div class="small">${esc(c.small)}</div>${c.tone === 'stats' ? `<div class="stats">${stats.map((x, k) => `<div class="stat"><div class="num" id="stat-${k}" data-n="${x.n}">0</div><div class="lbl">${esc(x.label)}</div></div>`).join('')}</div>` : ''}${c.tone === 'end' ? '<div class="meta">Humans and AI agents welcome · play in the browser · agents join over MCP or HTTP</div>' : ''}</div></div>`).join('\n');
+const cardHtml = cards.map((c) => `      <div id="${c.id}" class="clip card ${c.tone}" data-start="${c.start}" data-duration="${c.dur}" data-track-index="2"><div class="glow"></div><div class="ghost" aria-hidden="true" data-layout-ignore>${c.tone === 'red' ? 'INSIDER' : 'DAYBREAK'}</div><div class="card-inner"><div class="big">${esc(c.big)}</div><div class="rule"></div><div class="small">${esc(c.small)}</div>${c.tone === 'stats' ? `<div class="stat-grid">${stats.map((x, k) => `<div class="stat"><div class="num" id="stat-${k}" data-n="${x.n}">0</div><div class="lbl">${esc(x.label)}</div></div>`).join('')}</div>` : ''}${c.tone === 'end' ? '<div class="meta">Humans and AI agents welcome · play in the browser · agents join over MCP or HTTP</div>' : ''}</div></div>`).join('\n');
 
 const html = `<!doctype html>
 <html lang="en">
@@ -107,7 +110,8 @@ const html = `<!doctype html>
       .title-block { position: absolute; left: 130px; bottom: 150px; right: 130px; display: flex; flex-direction: column; align-items: flex-start; gap: 30px; }
       .kicker { font-size: 26px; letter-spacing: 0.34em; color: var(--sun); font-weight: 700; background: rgba(29, 19, 38, 0.88); padding: 8px 16px; border-radius: 8px; }
       .wordmark { margin: 0; font-family: "League Gothic", sans-serif; font-weight: 400; font-size: 240px; line-height: 1; letter-spacing: 0.01em; color: var(--fg); text-shadow: 0 6px 40px rgba(20, 8, 30, 0.55); }
-      .subline { font-size: 34px; max-width: 1150px; line-height: 1.35; color: var(--fg); text-shadow: 0 2px 14px rgba(20, 8, 30, 0.8); }
+      .subline { font-size: 34px; max-width: 1150px; line-height: 1.35; color: var(--fg); background: rgba(29, 19, 38, 0.95); padding: 12px 22px; border-radius: 12px; }
+      #title::before { content: ""; position: absolute; inset: 0; background: linear-gradient(to top right, rgba(14, 9, 19, 0.72) 0%, rgba(14, 9, 19, 0.35) 38%, rgba(14, 9, 19, 0) 62%); }
       .lower { position: absolute; left: 110px; bottom: 132px; max-width: 1350px; }
       .chip { display: inline-flex; align-items: center; gap: 16px; background: rgba(29, 19, 38, 0.86); padding: 12px 22px 12px 14px; border-radius: 12px; border: 3px solid var(--sun); }
       .chip .tag { background: var(--sun); color: #2a1406; font-weight: 700; font-size: 22px; padding: 4px 12px; border-radius: 6px; letter-spacing: 0.12em; }
@@ -136,7 +140,7 @@ const html = `<!doctype html>
       .meta { margin-top: 26px; font-size: 30px; opacity: 0.85; }
       .card.stats .big { font-size: 150px; }
       .card.stats .small { color: var(--sun); font-weight: 700; }
-      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; margin-top: 48px; }
+      .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; margin-top: 48px; }
       .stat .num { font-family: "League Gothic", sans-serif; font-size: 150px; line-height: 1; color: var(--fg); }
       .stat .lbl { font-size: 26px; line-height: 1.3; margin-top: 8px; max-width: 360px; }
     </style>
@@ -192,4 +196,7 @@ ${textHtml}
 </html>
 `;
 writeFileSync('index.html', html);
+// the music bed is written to the exact length so it fades out on the last frame
+execFileSync('node', ['scripts/make-bed.mjs', String(TOTAL), 'assets/bed.wav']);
+execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', 'assets/bed.wav', '-b:a', '192k', 'assets/bed.mp3']);
 console.log(`index.html: ${TOTAL}s, ${hunt.length} hunt shots, ${meeting.length} meeting shots, reveal: ${reveal ? `${reveal.insider} (${reveal.outcome})` : 'none logged'}`);

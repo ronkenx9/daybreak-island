@@ -32,9 +32,10 @@ function recentEvents() {
   return text.trim().split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
 const WEIGHT = { find: 5, junk: 4, sunset: 6, say: 1.5, decision: 0.2 };
+const weigh = (e) => (WEIGHT[e.kind] ?? 0) + (e.kind === 'decision' && /^sunset/.test(e.text) ? 9 : 0); // heading off to watch the sunset: go with them
 const scores = new Map();
 function pick(names, last) {
-  for (const e of recentEvents()) scores.set(e.agent, (scores.get(e.agent) ?? 0) + (WEIGHT[e.kind] ?? 0) + (e.rarity === 'legendary' ? 10 : 0));
+  for (const e of recentEvents()) scores.set(e.agent, (scores.get(e.agent) ?? 0) + weigh(e) + (e.rarity === 'legendary' ? 10 : 0));
   const ranked = names.map((n) => ({ n, s: (scores.get(n) ?? 0) + Math.random() - (n === last ? 2 : 0) })).sort((a, b) => b.s - a.s);
   for (const k of scores.keys()) scores.set(k, (scores.get(k) ?? 0) * 0.4); // decay
   return ranked[0]?.n;
@@ -59,6 +60,7 @@ while (Date.now() < end) {
   }, who);
   const file = `${OUT}/seg-${String(Date.now())}-${who}.webm`;
   const start = Date.now();
+  const phase0 = await page.evaluate(() => window.__dbi.insiderPhase ?? null);
   const rec = await page.screencast({ path: file, quality: 34 });
   await wait(SEG);
   await rec.stop();
@@ -66,7 +68,8 @@ while (Date.now() < end) {
   const mp4 = file.replace(/\.webm$/, '.mp4');
   const ff = spawn('ffmpeg', ['-v', 'error', '-y', '-i', file, '-c:v', 'h264_videotoolbox', '-b:v', '4M', '-r', '30', '-an', mp4], { stdio: 'ignore' });
   ff.on('exit', (code) => { if (code === 0) unlinkSync(file); });
-  appendFileSync(`${OUT}/index.jsonl`, `${JSON.stringify({ file: mp4, start, end: Date.now(), follow: who, shot })}\n`);
+  const phase1 = await page.evaluate(() => window.__dbi.insiderPhase ?? null);
+  appendFileSync(`${OUT}/index.jsonl`, `${JSON.stringify({ file: mp4, start, end: Date.now(), follow: who, shot, phase: [phase0, phase1] })}\n`);
   console.log(`${new Date(start).toISOString().slice(11, 19)} filmed ${who} (${shot}) -> ${file}`);
   last = who; n++;
 }

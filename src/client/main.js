@@ -478,7 +478,8 @@ function frame() {
     if (focus === players.get(me) && myHeading !== null) { if (steer.fwd > 0 || steer.turn) behind(myHeading, steer.turn ? 6 : 2.5); }
     else if (watchId && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05) behind(focus.cur.h, 1.8);
   }
-  if (ins.phase === 'meeting' && ins.spot && (!me || insPrivate?.role !== 'spectator')) {
+  const circle = (ins.phase === 'meeting' || ins.phase === 'reveal') && ins.spot; // the circle stays together through the reveal
+  if (circle && (!me || insPrivate?.role !== 'spectator')) {
     const r = 13, a = now / 9000; // a slow orbit around the circle
     camPos.lerp(v.set(ins.spot.x + Math.sin(a) * r * 0.8, groundAt(ins.spot.x, ins.spot.z) + 7, ins.spot.z + Math.cos(a) * r * 0.8), 1 - Math.exp(-dt * 2));
     camLook.lerp(v.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z), 1 - Math.exp(-dt * 3));
@@ -500,7 +501,7 @@ function frame() {
   if (fx.shake > 0.01) camera.position.add(v.set((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake));
   camera.lookAt(camLook);
   focusV.set(fx0, fy + 1, fz0);
-  if (ins.phase === 'meeting' && ins.spot) focusV.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z);
+  if (circle) focusV.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z);
   island.update(now / 1000, focusV);
   view.render(focusV, dt, now);
   fpsAcc += dt; fpsN++;
@@ -508,4 +509,4 @@ function frame() {
 }
 renderer.setAnimationLoop(frame);
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { cam, follow, renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };
