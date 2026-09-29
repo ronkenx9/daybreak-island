@@ -74,7 +74,7 @@ export async function makeRenderer(container, { tier: forced, backend } = {}) {
   // ---------------------------------------------------------------- finishing chain
   const pipeline = new THREE.RenderPipeline(renderer);
   const focus = { distance: uniform(12), range: uniform(22), bokeh: uniform(0.9) };
-  const grade = (img) => {
+  const grade = Fn(([img]) => {
     // art-directed golden hour: lavender shade, peach highlights, greens pulled
     // toward warm sage so they sit with the sand, gentle filmic contrast, soft vignette
     const c = img.rgb.toVar();
@@ -88,7 +88,7 @@ export async function makeRenderer(container, { tier: forced, backend } = {}) {
     const q = screenUV.sub(0.5);
     const vig = float(1).sub(dot(q, q).mul(0.55));
     return vec4(clamp(contrast, 0, 64).mul(vig), 1);
-  };
+  });
   const passes = {};
   function buildChain(kind) {
     const scenePass = pass(scene, camera);

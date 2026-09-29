@@ -39,6 +39,7 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720 });
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
+page.on('console', (m) => { if (m.type() === 'error' && !/favicon|Failed to load resource/.test(m.text())) errs.push(m.text().slice(0, 160)); }); // e.g. shader-graph errors that don't throw
 await page.goto(`http://127.0.0.1:${PORT}/${QS}`, { waitUntil: 'load' });
 await page.type('#name', 'visual-check');
 await page.click('#play');
