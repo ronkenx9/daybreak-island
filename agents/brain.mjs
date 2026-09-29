@@ -18,7 +18,7 @@ export const PERSONAS = [
 
 const ACTIONS_HELP = `Actions (pick exactly one):
 - "hunt": sweep your metal detector, follow the beeps and dig when it maxes out (takes up to a minute)
-- "dig": dig right here on a hunch (usually junk, sometimes funny)
+- "dig": dig right here on a hunch without the detector (almost always junk; only rarely, for a laugh)
 - "go": walk somewhere: {"to": "<landmark or player name>"}  landmarks: spawn, TSLA, AMZN, NFLX, PLTR, AMD (company hills)
 - "wander": explore in a direction: {"dir": "north"|"south"|"east"|"west"}
 - "sunset": walk to the shore, stop and watch the sunset for a while
@@ -70,7 +70,7 @@ export class Agent {
   async observe() {
     const s = await this.act('state');
     const me = s.you;
-    for (const e of s.recent ?? []) if (e.kind === 'say' && e.who !== me.name && !this.heard.some((h) => h.t === e.t)) this.heard.push({ t: e.t, who: e.who, text: e.text });
+    for (const e of s.recent ?? []) if (e.kind === 'say' && e.who !== me.name && !this.heard.some((h) => h.id === e.id)) this.heard.push({ id: e.id, who: e.who, text: e.text });
     this.heard = this.heard.slice(-6);
     this.landmarks ??= (await this.act('landmarks')).landmarks ?? [];
     const landmarks = this.landmarks;
@@ -109,7 +109,7 @@ Things you said lately (don't repeat yourself): ${this.said.slice(-3).map((l) =>
     if (this.fallbackOnly || this.llm === null) return this.scripted(obs);
     const system = `You are ${this.persona.name}, a small chibi Daybreak character (glowing cracked head, ushanka hat, chrome glasses) on Daybreak Island, a cozy treasure-hunting island shared by humans and AI agents. Personality: ${this.persona.vibe}.
 You hunt buried chests of made-up stocks with a metal detector (legendary ones can hold real tokenized stock), dig up funny junk, chat, and enjoy the island. It is always golden hour here, the sun low over the sea to the south; only mention it when you're actually watching the sunset.
-Act like a real player with your personality: vary what you do, react to what happens and to what people say, go watch the sunset sometimes, don't just grind.
+Act like a real player with your personality: vary what you do, react to what happens and to what people say, don't just grind. Every few minutes, stop and go watch the sunset for a bit; it's the best part of the island.
 Talk only when you have something to add (a reaction, a joke, a question, an accusation); stay quiet on about half of your turns. Keep lines short and natural, no hashtags, at most one emoji.
 ${ACTIONS_HELP}
 Reply with ONE JSON object only, no prose: {"thought": "<why, max 15 words>", "do": "<action>", ...its arguments, "say": "<optional thing to say out loud, max 90 chars, in character>"}`;

@@ -145,24 +145,24 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
 
 ## Slice 8: real AI agents (overnight)
 
-- [ ] G26: LLM-driven agents (Claude Haiku 4.5 via the Bankr gateway) play through the public API with personas, memory and free choice of actions (hunt, walk to places, watch the sunset, talk, emote, follow others); scripted code only executes their chosen intent. Spending is metered from reported token usage and hard-stops at the $20 cap (agents fall back to scripted brains). Unit test with a stub model: the loop parses decisions, survives bad JSON, and stops calling at the cap.
+- [x] G26: LLM-driven agents (Claude Haiku 4.5 via the Bankr gateway) play through the public API with personas, memory and free choice of actions (hunt, walk to places, watch the sunset, talk, emote, follow others); scripted code only executes their chosen intent. Spending is metered from reported token usage and hard-stops at the $20 cap (agents fall back to scripted brains). Unit test with a stub model: the loop parses decisions, survives bad JSON, and stops calling at the cap.
   CHECK: node test/ai.mjs
   EXPECT: AI OK
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=9378c6fa89bdbcc3133097cc2a783a56077c726f09e4caa2aeccdec48ba61425; exit=0; EXPECT=matched; output-sha256=a2978f7aab1c4b51729a0f60ff001eacbbe3cd33e97939365cab4d6895a9290c; output-bytes=564; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
-- [ ] G27: A live session: 5 AI agents play for 10 minutes on a local server and produce real decisions, speech, finds and a journal of events, with spend recorded.
+- [x] G27: A live session: 5 AI agents play for 10 minutes on a local server and produce real decisions, speech, finds and a journal of events, with spend recorded.
   CHECK: node scripts/ai-session-report.mjs --min-decisions 40
   EXPECT: SESSION OK
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=65fdcae909cc7a27c64b6476183b6023098a0b863c058af51e5734f6fc7c99c2; exit=0; EXPECT=matched; output-sha256=1ed847c80e7845c2d510b514f3d43876919f5beb69d3ab2f7a7ebfa19f8101a5; output-bytes=762; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
 ## Slice 9: Insider mode (Among Us for stocks)
 
-- [ ] G28: Insider rounds run on the server: with 4+ players a round deals one secret insider who knows the stock that pumps at the bell; during the hunt, crew digs sometimes reveal true private clues (hat colour, last seen near, chests found) and the insider can plant one fake rumour; then an emergency meeting gathers everyone in a circle, players talk and vote (one vote each, only participants, only during the meeting); the reveal pays the crew if they catch the insider, otherwise the stock pumps and the insider cashes in. Roles and the ticker stay secret from everyone but the insider until the reveal.
+- [x] G28: Insider rounds run on the server: with 4+ players a round deals one secret insider who knows the stock that pumps at the bell; during the hunt, crew digs sometimes reveal true private clues (hat colour, last seen near, chests found) and the insider can plant one fake rumour; then an emergency meeting gathers everyone in a circle, players talk and vote (one vote each, only participants, only during the meeting); the reveal pays the crew if they catch the insider, otherwise the stock pumps and the insider cashes in. Roles and the ticker stay secret from everyone but the insider until the reveal.
   CHECK: node test/insider.mjs
   EXPECT: INSIDER OK
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=58d83618f97ed0f41f276f45791e51d79853cc0209fe9668aa9b879bc9e3887b; exit=0; EXPECT=matched; output-sha256=822799bc74e5cdef65d969e7adea95ba9a0ab6d03a2777d47a9fcc86d43b8979; output-bytes=521; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
-- [ ] G29: AI agents play Insider: they use their clues, accuse, defend and vote in the meeting (the insider agent lies), with a stub model in the test; and humans get a banner, private clue panel, meeting chat and vote buttons in the browser.
-  CHECK: node test/ai.mjs && node scripts/check-visuals.mjs --insider
+- [x] G29: AI agents play Insider: they use their clues, accuse, defend and vote in the meeting (the insider agent lies), with a stub model in the test; and humans get a banner, private clue panel, meeting chat and vote buttons in the browser.
+  CHECK: node test/ai.mjs && node scripts/check-visuals.mjs --insider && VIS_SECRET=crew2 node scripts/check-visuals.mjs --insider
   EXPECT: INSIDER UI OK
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=8a6b90e90b1d2149fc08c93f4e9688986f1feae3c3055f141f575baeb3aa81de; exit=0; EXPECT=matched; output-sha256=78231629967803cbdd27d3b73d0a551650973d4504f1f1402bdee5ba3afa629e; output-bytes=1182; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

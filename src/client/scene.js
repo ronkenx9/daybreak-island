@@ -406,9 +406,9 @@ function campfire() {
   const phase = hash(instanceIndex).mul(6.28);
   const flick = sin(uTime.mul(11).add(phase)).mul(0.12).add(sin(uTime.mul(17).add(phase.mul(2))).mul(0.08)).add(1);
   flameMat.positionNode = positionLocal.mul(vec3(1, flick, 1)).add(vec3(sin(uTime.mul(6).add(phase)).mul(0.04).mul(positionLocal.y), 0, 0));
-  flameMat.colorNode = mix(vec3(3.2, 1.1, 0.25), vec3(4.0, 2.8, 0.9), smoothstep(0.0, 0.6, positionLocal.y.negate().add(0.6)));
+  flameMat.colorNode = mix(vec3(5.0, 1.6, 0.3), vec3(6.0, 4.2, 1.3), smoothstep(0.0, 0.6, positionLocal.y.negate().add(0.6)));
   flameMat.opacityNode = float(0.85);
-  const flames = new THREE.InstancedMesh(new THREE.ConeGeometry(0.16, 0.75, 7).translate(0, 0.37, 0), flameMat, 5);
+  const flames = new THREE.InstancedMesh(new THREE.ConeGeometry(0.22, 1.05, 7).translate(0, 0.52, 0), flameMat, 5);
   for (let k = 0; k < 5; k++) { d.position.set(Math.sin(k * 1.3) * 0.12 * (k > 0), 0.2, Math.cos(k * 1.3) * 0.12 * (k > 0)); d.rotation.set(0, k, 0); d.scale.setScalar(k === 0 ? 1.25 : 0.7 + (k % 2) * 0.2); d.updateMatrix(); flames.setMatrixAt(k, d.matrix); }
   g.add(flames);
   // embers drifting up

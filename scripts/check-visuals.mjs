@@ -14,11 +14,13 @@ const MECH = process.argv.includes('--mechanics');
 const POLISH = process.argv.includes('--polish');
 const BACKENDS = process.argv.includes('--backends');
 const CAMERA = process.argv.includes('--camera');
+const INSIDER = process.argv.includes('--insider');
 const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
 const PORT = 5297, wait = (ms) => new Promise((r) => setTimeout(r, ms));
 execFileSync('npx', ['vite', 'build'], { stdio: 'ignore' });
 const store = openDb(':memory:');
-const srv = startServer({ port: PORT, prod: true, vite: false, secret: 'visuals', store, prizes: new PrizePool({ store }) });
+const srv = startServer({ port: PORT, prod: true, vite: false, secret: process.env.VIS_SECRET ?? 'visuals', store, prizes: new PrizePool({ store }),
+  insider: INSIDER ? { minPlayers: 4, firstDelay: 14, cooldown: 600, hunt: 600, meeting: 600, reveal: 30, clueChance: 1 } : { firstDelay: 1e9 } });
 for (let i = 0; i < 5; i++) srv.game.join({ name: `agent-${i}`, kind: 'agent' });
 
 // a grassy spot at a forest edge, so the shot shows trees, grass and props
@@ -45,7 +47,53 @@ await wait(2500);
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
 
-if (CAMERA) {
+if (INSIDER) {
+  await page.waitForFunction(() => !document.getElementById('ins-banner').hidden, { timeout: 25000 }).catch(() => {});
+  await wait(1500);
+  const hunt = await page.evaluate(() => ({ banner: document.getElementById('ins-banner').textContent, panel: !document.getElementById('ins-panel').hidden, role: document.getElementById('ins-role').textContent, leak: !document.getElementById('ins-leak').hidden }));
+  check(/INSIDER ROUND/.test(hunt.banner), `round banner (${hunt.banner})`);
+  check(hunt.panel && /INSIDER|CREW/.test(hunt.role), `private role panel (${hunt.role})`);
+  const role = srv.game.insider.status(me).role;
+  if (role === 'insider') {
+    check(hunt.leak, 'the insider gets a rumour box');
+    await page.type('#ins-leak-text', 'the insider wears a white hat');
+    await page.click('#ins-leak-btn');
+    await wait(1500);
+    check(srv.game.insider.r.rumors.length === 1, 'rumour planted from the browser');
+  } else {
+    check(!hunt.leak, 'crew has no rumour box');
+    srv.game.chests = srv.game.chests.filter((c) => Math.hypot(c.x - me.x, c.z - me.z) > 20);
+    await page.keyboard.press('KeyE');
+    await wait(3200);
+    const body = await page.evaluate(() => document.getElementById('ins-body').textContent);
+    check(/Your clues/.test(body) && /insider/.test(body), `a dig turned up a clue (${body.slice(0, 80)})`);
+  }
+  await page.screenshot({ path: 'evidence/insider-hunt.png' });
+  // chat from the browser
+  await page.keyboard.press('Enter'); await page.keyboard.type('who has the white hat?'); await page.keyboard.press('Enter');
+  await wait(600);
+  check(srv.game.events.some((e) => e.kind === 'say' && e.who === 'visual-check' && /white hat/.test(e.text)), 'Enter opens chat and sends a line');
+  // emergency meeting
+  srv.game.insider.left = 0.05;
+  await page.waitForFunction(() => !document.getElementById('meeting').hidden, { timeout: 8000 }).catch(() => {});
+  await wait(3500);
+  const mtg = await page.evaluate(() => ({ panel: !document.getElementById('meeting').hidden, buttons: document.querySelectorAll('#meeting-votes button').length, banner: document.getElementById('ins-banner').textContent }));
+  const inRound = srv.game.insider.r.ids.size;
+  check(mtg.panel && mtg.buttons === inRound, `meeting panel with a vote for each other player + skip (${mtg.buttons} buttons, ${inRound} players)`);
+  check(/EMERGENCY MEETING/.test(mtg.banner), 'meeting banner');
+  for (const p of srv.game.players.values()) if (p.kind === 'agent') srv.game.act(p.id, 'say', { text: `I was near ${['TSLA', 'AMZN', 'NFLX'][p.id.length % 3]} the whole time` });
+  await wait(1200);
+  const log = await page.evaluate(() => document.getElementById('meeting-log').textContent);
+  check(/the whole time/.test(log), 'meeting chat shows what people say');
+  await page.screenshot({ path: 'evidence/insider-meeting.png' });
+  for (const p of srv.game.players.values()) if (p.kind === 'agent') srv.game.act(p.id, 'vote', { who: 'skip' });
+  await page.click('#meeting-votes button');
+  await page.waitForFunction(() => /CAUGHT|GOT AWAY/.test(document.getElementById('ins-banner').textContent) && document.getElementById('ins-banner').classList.contains('ph-reveal'), { timeout: 8000 }).catch(() => {});
+  const rev = await page.evaluate(() => document.getElementById('ins-banner').textContent);
+  check(/WAS THE INSIDER|GOT AWAY/.test(rev), `reveal banner (${rev})`);
+  await page.screenshot({ path: 'evidence/insider-reveal.png' });
+  console.log(`role=${role} hunt=${JSON.stringify(hunt)} meeting=${JSON.stringify(mtg)} reveal=${rev}`);
+} else if (CAMERA) {
   const view = () => page.evaluate(() => { const d = window.__dbi, p = d.players.get(d.me).cur, c = d.view.camera.position; return { yaw: Math.atan2(c.x - p.x, c.z - p.z), dist: Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z), camYaw: d.cam.yaw, camDist: d.cam.dist }; });
   const angle = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
   const v0 = await view();
@@ -207,6 +255,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

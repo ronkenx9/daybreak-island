@@ -35,12 +35,15 @@ export function makeLLM({ base = process.env.BANKR_LLM_BASE || 'https://llm.bank
     model,
     async chat(messages, { maxTokens = 220, temperature = 0.9 } = {}) {
       if (meter?.exhausted) throw new BudgetExhausted(`AI budget of $${meter.budget} used up`);
-      const r = await fetchImpl(`${base}/chat/completions`, {
+      const send = () => fetchImpl(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'X-API-Key': key },
         body: JSON.stringify({ model, max_tokens: maxTokens, temperature, messages }),
         signal: AbortSignal.timeout(timeoutMs),
       });
+      // one retry on a network blip (timeouts, dropped connections) before giving up
+      let r;
+      try { r = await send(); } catch { await new Promise((res) => setTimeout(res, 1500)); r = await send(); }
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(`LLM ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
       const cost = meter ? meter.add(model, j.usage) : 0;

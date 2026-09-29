@@ -77,8 +77,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 
 /* Insider */
 .insider-banner { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); background: #2a1640; color: #fff; padding: 7px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; box-shadow: var(--shadow); white-space: nowrap; }
-.insider-banner.meeting { background: #d7263d; animation: pulse 1s ease-in-out infinite alternate; }
-.insider-banner.reveal { background: var(--gold); color: var(--ink); }
+.insider-banner.ph-meeting { background: #d7263d; animation: pulse 1s ease-in-out infinite alternate; }
+.insider-banner.ph-reveal { background: var(--gold); color: var(--ink); }
 @keyframes pulse { to { transform: translateX(-50%) scale(1.05); } }
 .insider { left: 14px; top: 362px; width: 210px; pointer-events: auto; }
 .insider .label.insider-role { color: #d7263d; opacity: 1; }
@@ -95,3 +95,4 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 .chat { position: absolute; left: 50%; bottom: 100px; transform: translateX(-50%); width: min(420px, calc(100vw - 28px)); display: flex; pointer-events: auto; }
 .feed .rumor { background: #2a1640; color: #fff; }
 .feed .insider-ev { background: #efe3ff; font-weight: 700; }
+.meeting .chat { position: static; transform: none; width: 100%; margin-top: 8px; }

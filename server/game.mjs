@@ -101,7 +101,8 @@ export class Game {
   }
 
   pushEvent(e) {
-    this.events.push({ ...e, t: this.now() });
+    this.evSeq = (this.evSeq ?? 0) + 1; // unique and ordered, even for events in the same millisecond
+    this.events.push({ ...e, t: this.now(), id: this.evSeq });
     if (this.events.length > 60) this.events.shift();
   }
 

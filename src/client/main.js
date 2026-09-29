@@ -90,7 +90,7 @@ function insiderHud(pub) {
   ins = pub;
   const b = $('ins-banner');
   b.hidden = pub.phase === 'lobby';
-  b.className = `insider-banner ${pub.phase}`;
+  b.className = `insider-banner ph-${pub.phase}`;
   if (pub.phase === 'hunt') b.textContent = `INSIDER ROUND ${pub.round} · someone knows which stock pumps · meeting in ${mmss(pub.left)}`;
   if (pub.phase === 'meeting') b.textContent = `EMERGENCY MEETING · ${pub.votesCast}/${pub.players.length} voted · ${mmss(pub.left)}`;
   if (pub.phase === 'reveal' && pub.last) b.textContent = pub.last.outcome === 'caught' ? `${pub.last.insider} WAS THE INSIDER · CAUGHT` : `THE INSIDER ${pub.last.insider} GOT AWAY · $${pub.last.ticker} PUMPS`;
@@ -111,6 +111,9 @@ async function refreshInsider() {
     : `<div>${st.clues?.length ? `Your clues:<ul>${st.clues.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : 'Dig to find clues about the insider.'}</div>${rumors}`;
   $('ins-leak').hidden = !(st.role === 'insider' && st.canLeak && st.phase === 'hunt');
   $('meeting').hidden = !(inRound && st.phase === 'meeting');
+  // during a meeting the chat box lives inside the meeting panel, under the votes
+  const chatHome = !$('meeting').hidden ? $('meeting') : document.querySelector('.hud');
+  if ($('chat').parentElement !== chatHome) chatHome.appendChild($('chat'));
   if (inRound && st.phase === 'meeting') {
     const box = $('meeting-votes');
     const names = st.players.filter((n) => n !== players.get(me)?.name);
@@ -145,8 +148,8 @@ let lastEvent = 0;
 function hud(s) {
   $('ticker').innerHTML = s.market.map(([t, p, c]) => `<span>$${t} ${p.toFixed(2)} <b class="${c >= 0 ? 'up' : 'down'}">${c >= 0 ? '▲' : '▼'}${Math.abs(c)}%</b></span>`).join('');
   for (const e of s.events) {
-    if (e.t <= lastEvent) continue;
-    lastEvent = e.t;
+    if (e.id <= lastEvent) continue;
+    lastEvent = e.id;
     const div = document.createElement('div');
     let delay = 0;
     if (e.kind === 'chest') { div.className = e.rarity; div.textContent = `${e.who} dug up a ${e.rarity} chest: ${Object.entries(e.loot).map(([t, n]) => `${n} $${t}`).join(', ')}${e.streak > 1 ? ` (streak ${e.streak})` : ''}`; delay = 1350; }
