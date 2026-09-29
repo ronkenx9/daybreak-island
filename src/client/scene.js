@@ -9,7 +9,7 @@ import {
   mx_noise_float, cameraViewMatrix, abs, screenCoordinate, frameId,
 } from 'three/tsl';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { height, SIZE, MESAS, pathDist, MEETING_SPOT, groundAt } from '../shared/world.js';
+import { height, SIZE, MESAS, pathDist, MEETING_SPOT, groundAt, PIER, LIGHTHOUSE, HUTS } from '../shared/world.js';
 import { makeNoise } from '../shared/noise.js';
 import { SUN_DIR } from './render.js';
 
@@ -29,13 +29,13 @@ export const toon = (opts) => new THREE.MeshToonNodeMaterial({ gradientMap: toon
 const C = (h) => new THREE.Color(h);
 const PAL = {
   sand: C('#f2d99c'), wet: C('#d9bd80'), grass: C('#8fc23a'), grassLight: C('#b8d94c'), grassDark: C('#5f9a31'),
-  cliff: C('#6b6560'), cliffDark: C('#46403d'), dirt: C('#c4935a'),
+  cliff: C('#6b6560'), cliffDark: C('#46403d'), dirt: C('#c4935a'), snow: C('#f1eaf7'),
 };
 const flat = (x, z) => { const e = 1, a = height(x, z); return Math.max(Math.abs(height(x + e, z) - a), Math.abs(height(x, z + e) - a)) < 0.35; };
 
 // ---------------------------------------------------------------- terrain data for shaders
 // RGBA float texture over the island: R height, G where grass grows, B colour patch tone
-const TEX = 256;
+const TEX = 384;
 function terrainData() {
   const data = new Float32Array(TEX * TEX * 4);
   for (let j = 0; j < TEX; j++) for (let i = 0; i < TEX; i++) {
@@ -78,7 +78,7 @@ const glitter = Fn(([p, strength, scale]) => {
 });
 
 function terrain() {
-  const seg = 220;
+  const seg = 320;
   const geo = new THREE.PlaneGeometry(SIZE + 60, SIZE + 60, seg, seg).rotateX(-Math.PI / 2);
   const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
@@ -94,6 +94,9 @@ function terrain() {
     if (y >= 1.35 && y < 1.6) c.lerp(PAL.sand, (1.6 - y) / 0.25);
     if (up < 0.72 && y > 0.8) c.copy(PAL.cliff).lerp(PAL.cliffDark, THREE.MathUtils.clamp((1 - up) * 1.6, 0, 1));
     if (pathDist(x, z) < 2.2 && y > 1.2 && up > 0.8) c.lerp(PAL.dirt, 0.85);
+    // mountains: bare rock up high, snow on the peaks
+    if (y > 11) c.lerp(PAL.cliff, THREE.MathUtils.smoothstep(y, 11, 16) * 0.85);
+    if (y > 19) c.lerp(PAL.snow, THREE.MathUtils.smoothstep(y, 19, 25) * (0.55 + up * 0.45));
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -148,8 +151,8 @@ function clouds() {
   const spots = [];
   for (let i = 0; i < 11; i++) {
     const a = Math.PI / 2 + (i / 11 - 0.5) * 2.4 + (rnd() - 0.5) * 0.2; // spread across the view, toward the sun
-    const r = 230 + rnd() * 50;
-    spots.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, y: 34 + rnd() * 40, s: 4 + rnd() * 3.5 });
+    const r = 300 + rnd() * 40;
+    spots.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, y: 45 + rnd() * 50, s: 5 + rnd() * 4.5 });
   }
   return instanced(geo, mat, spots, (d, s) => { d.position.set(s.x, s.y, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.set(s.s * 1.4, s.s, s.s); });
 }
@@ -306,7 +309,7 @@ const land = (x, z, h) => open(x, z, h) && spawnClear(x, z);
 function forests() {
   // trees grow in clumps where a forest noise is high
   const forestMask = (x, z) => N.fbm(x * 0.018 + 5, z * 0.018 - 3, 3);
-  const spots = scatter(620, (x, z, h) => land(x, z, h) && forestMask(x, z) > 0.05, 1.9, 20000);
+  const spots = scatter(1300, (x, z, h) => land(x, z, h) && forestMask(x, z) > 0.05, 1.9, 42000);
   const lumps = [];
   for (let k = 0; k < 9; k++) {
     const a = (k / 9) * Math.PI * 2, rr = k === 0 ? 0 : 0.75 + (k % 3) * 0.15;
@@ -337,7 +340,7 @@ function props(treeSpots) {
 
   // bushes: low lumpy clumps, often at forest edges
   const bushGeo = baked([0, 1, 2, 3].map((k) => [lumpy(new THREE.IcosahedronGeometry(0.55 - k * 0.06, 1), 0.15, k + 20).translate(Math.cos(k * 1.9) * 0.45, 0.35 + (k === 0) * 0.25, Math.sin(k * 1.9) * 0.45), '#ffffff', 0.5]));
-  const bushSpots = scatter(420, (x, z, h) => open(x, z, h) && Math.hypot(x, z - 84) > 5 && (near(x, z, 5) || rnd() < 0.3), 1.2);
+  const bushSpots = scatter(850, (x, z, h) => open(x, z, h) && Math.hypot(x, z - 84) > 5 && (near(x, z, 5) || rnd() < 0.3), 1.2);
   const bushMat = lambert();
   seeThrough(bushMat, 2.5, 6);
   const bushes = instanced(bushGeo, bushMat, bushSpots, (d, s) => { d.position.set(s.x, s.h - 0.05, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.7 + rnd() * 0.8); });
@@ -352,7 +355,7 @@ function props(treeSpots) {
   const fernGeo = baked([0, 1, 2, 3, 4, 5, 6].map((k) => [leaf.clone().rotateX(-0.65).rotateY((k / 7) * Math.PI * 2), '#ffffff', 0.45]));
   const fernMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true, side: THREE.DoubleSide });
   windy(fernMat, 0.06);
-  const fernSpots = scatter(520, (x, z, h) => open(x, z, h), 1.0);
+  const fernSpots = scatter(1000, (x, z, h) => open(x, z, h), 1.0);
   const ferns = instanced(fernGeo, fernMat, fernSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.7); });
   fernSpots.forEach((_, i) => ferns.setColorAt(i, C(['#7fb04a', '#6aa23f', '#93bf55'][i % 3])));
   ferns.castShadow = true;
@@ -360,7 +363,7 @@ function props(treeSpots) {
 
   // rocks
   const rockGeo = baked([[lumpy(new THREE.DodecahedronGeometry(0.5, 1), 0.18, 40).scale(1, 0.62, 0.9), '#ffffff', 0.35]]);
-  const rockSpots = scatter(220, (x, z, h) => h > 1.1 && spawnClear(x, z) && pathDist(x, z) > 2.5, 2);
+  const rockSpots = scatter(460, (x, z, h) => h > 1.1 && spawnClear(x, z) && pathDist(x, z) > 2.5, 2);
   const rocks = instanced(rockGeo, lambert(), rockSpots, (d, s) => { d.position.set(s.x, s.h - 0.08, s.z); d.rotation.set(rnd() * 0.4, rnd() * 6, rnd() * 0.4); d.scale.setScalar(0.4 + rnd() * rnd() * 2.2); });
   rockSpots.forEach((_, i) => rocks.setColorAt(i, C(['#9a948c', '#888078', '#aaa39a'][i % 3])));
   rocks.castShadow = true; rocks.receiveShadow = true;
@@ -369,13 +372,13 @@ function props(treeSpots) {
   // flower clusters (red and white) and little blue crystals
   const petal = new THREE.IcosahedronGeometry(0.07, 0);
   const cluster = baked([0, 1, 2, 3, 4].map((k) => [petal.clone().translate(Math.cos(k * 2.4) * 0.22 * (k > 0), 0.14 + (k % 2) * 0.05, Math.sin(k * 2.4) * 0.22 * (k > 0)), '#ffffff', 0]));
-  const flowerSpots = scatter(1400, (x, z, h) => open(x, z, h) && N.noise(x * 0.07 + 30, z * 0.07) > 0.05, 0.6);
+  const flowerSpots = scatter(2800, (x, z, h) => open(x, z, h) && N.noise(x * 0.07 + 30, z * 0.07) > 0.05, 0.6);
   const flowers = instanced(cluster, new THREE.MeshLambertNodeMaterial({ vertexColors: true, emissive: '#221111' }), flowerSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.6); });
   flowerSpots.forEach((_, i) => flowers.setColorAt(i, C(i % 5 === 0 ? '#fff5e0' : i % 7 === 0 ? '#ffd23f' : '#e5383b')));
   meshes.push(flowers);
 
   const crystalGeo = baked([0, 1, 2].map((k) => [new THREE.OctahedronGeometry(0.12 - k * 0.025, 0).scale(1, 1.8, 1).rotateZ((k - 1) * 0.35).translate((k - 1) * 0.12, 0.16, 0), '#ffffff', 0]));
-  const crystalSpots = scatter(260, (x, z, h) => open(x, z, h), 1.5);
+  const crystalSpots = scatter(520, (x, z, h) => open(x, z, h), 1.5);
   const crystals = instanced(crystalGeo, new THREE.MeshLambertNodeMaterial({ vertexColors: true, emissive: '#1a2a9a', emissiveIntensity: 0.6 }), crystalSpots, (d, s) => { d.position.set(s.x, s.h - 0.03, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.8); });
   crystalSpots.forEach((_, i) => crystals.setColorAt(i, C(i % 3 ? '#3a5cff' : '#6a8cff')));
   meshes.push(crystals);
@@ -426,6 +429,59 @@ function campfire() {
   return { group: g, update: (t) => { light.intensity = 16 + Math.sin(t * 13) * 2.5 + Math.sin(t * 29) * 1.5; } };
 }
 
+// ---------------------------------------------------------------- set pieces
+function pier() {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
+  const len = PIER.z1 - PIER.z0, n = Math.floor(len / 0.42);
+  const plank = baked([[new THREE.BoxGeometry(PIER.w * 2 + 0.3, 0.12, 0.36), '#8a5d3b', 0.25]]);
+  const planks = new THREE.InstancedMesh(plank, wood, n);
+  const d = new THREE.Object3D();
+  for (let i = 0; i < n; i++) { d.position.set(PIER.x + (i % 3 - 1) * 0.03, PIER.deck - 0.06, PIER.z0 + i * 0.42 + 0.2); d.rotation.set(0, (i % 5 - 2) * 0.006, 0); d.updateMatrix(); planks.setMatrixAt(i, d.matrix); planks.setColorAt(i, C(['#8a5d3b', '#7b5234', '#94663f'][i % 3])); }
+  const postGeo = baked([[new THREE.CylinderGeometry(0.13, 0.15, 5.2, 7), '#5e3d27', 0.4]]);
+  const postSpots = [];
+  for (let z = PIER.z0 + 1; z < PIER.z1; z += 3.2) for (const sx of [-1, 1]) postSpots.push({ x: PIER.x + sx * (PIER.w + 0.05), z });
+  const posts = instanced(postGeo, wood, postSpots, (o, sp) => { o.position.set(sp.x, PIER.deck + 0.4 - 2.6, sp.z); });
+  for (const m of [planks, posts]) { m.castShadow = true; m.receiveShadow = true; }
+  g.add(planks, posts);
+  return g;
+}
+function lighthouse() {
+  const g = new THREE.Group();
+  const y = groundAt(LIGHTHOUSE.x, LIGHTHOUSE.z);
+  g.position.set(LIGHTHOUSE.x, y - 0.2, LIGHTHOUSE.z);
+  const bands = [];
+  for (let k = 0; k < 5; k++) {
+    const r0 = 2.3 - k * 0.16, r1 = 2.3 - (k + 1) * 0.16;
+    bands.push([new THREE.CylinderGeometry(r1, r0, 2.5, 18).translate(0, 1.25 + k * 2.5, 0), k % 2 ? '#f4efe8' : '#d64545', 0.15]);
+  }
+  bands.push([new THREE.CylinderGeometry(1.95, 1.95, 0.3, 18).translate(0, 12.65, 0), '#3b3b44', 0]); // gallery
+  bands.push([new THREE.ConeGeometry(1.25, 1.4, 18).translate(0, 15.3, 0), '#d64545', 0]); // roof
+  const tower = new THREE.Mesh(baked(bands), new THREE.MeshLambertNodeMaterial({ vertexColors: true }));
+  tower.castShadow = true; tower.receiveShadow = true;
+  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 1.8, 16).translate(0, 13.7, 0), new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(4.5, 3.6, 2.0) })); // glows (blooms)
+  g.add(tower, lamp);
+  return g;
+}
+function huts() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
+  for (const h of HUTS) {
+    const geo = baked([
+      [new THREE.BoxGeometry(2.4, 1.9, 2.2).translate(0, 1.55, 0), h.color, 0.25],
+      [new THREE.CylinderGeometry(0.01, 1.75, 1.1, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 0.92).translate(0, 3.05, 0), '#3d3346', 0],
+      [new THREE.BoxGeometry(0.7, 1.2, 0.05).translate(0, 1.2, 1.11), '#2a2230', 0],
+      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => [new THREE.CylinderGeometry(0.08, 0.08, 0.9, 5).translate(sx * 1.05, 0.3, sz * 0.95), '#6b4a33', 0]),
+    ]);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(h.x, groundAt(h.x, h.z) - 0.1, h.z);
+    m.rotation.y = h.rot; // doors face the sea (+z)
+    m.castShadow = true; m.receiveShadow = true;
+    g.add(m);
+  }
+  return g;
+}
+
 function mesas(scene) {
   // a flag on every company mesa
   for (const m of MESAS) {
@@ -455,6 +511,7 @@ export function buildIsland(scene) {
   const dust = motes(); scene.add(dust.mesh);
   scene.add(clouds());
   const fire = campfire(); scene.add(fire.group);
+  scene.add(pier(), lighthouse(), huts());
   mesas(scene);
   return {
     grass,

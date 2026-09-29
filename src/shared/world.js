@@ -2,7 +2,7 @@
 // client (rendering). Pure JS, deterministic, no three.js.
 import { makeNoise } from './noise.js';
 
-export const SIZE = 240; // metres across the playable map
+export const SIZE = 360; // metres across the playable map
 export const SEA = 0;
 const N = makeNoise(4242);
 const ss = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -11,15 +11,15 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // Five company mesas ring the north of the island (bosses live here later).
 export const MESAS = ['TSLA', 'AMZN', 'NFLX', 'PLTR', 'AMD'].map((ticker, i) => {
   const a = (-70 + i * 35) * Math.PI / 180;
-  return { ticker, x: Math.sin(a) * 72, z: -Math.cos(a) * 72 + 8, h: [9, 12, 14, 11, 9][i], r: [16, 18, 20, 17, 15][i] };
+  return { ticker, x: Math.sin(a) * 98, z: -Math.cos(a) * 98 + 6, h: [9, 12, 14, 11, 9][i], r: [16, 18, 20, 17, 15][i] };
 });
 
 export const pathX = (z) => Math.sin(z * 0.04) * 10;
-export function pathDist(x, z) { return z < -30 || z > 110 ? 99 : Math.abs(x - pathX(z)); }
+export function pathDist(x, z) { return z < -44 || z > 170 ? 99 : Math.abs(x - pathX(z)); }
 
 function island(x, z) {
-  const warp = N.fbm(x * 0.01 + 3, z * 0.01 - 7, 3) * 22;
-  return 1 - ss(Math.hypot(x, z * 1.05) + warp, 88, 112);
+  const warp = N.fbm(x * 0.008 + 3, z * 0.008 - 7, 3) * 30;
+  return 1 - ss(Math.hypot(x, z * 1.05) + warp, 132, 162);
 }
 
 function terrace(h, x, z, step) {
@@ -28,7 +28,49 @@ function terrace(h, x, z, step) {
   return (Math.floor(t) + ss(f, 0.84 + jag, 0.95 + jag)) * step;
 }
 
+// ---------------------------------------------------------------- set pieces
+// a mountain range along the north edge, behind the company hills
+function mountains(x, z, land) {
+  const ridgeZ = -132 + N.noise(x * 0.011 + 40, 3.3) * 12;
+  const band = 1 - ss(Math.abs(z - ridgeZ), 8, 36);
+  if (band <= 0) return 0;
+  const peaks = N.ridged(x * 0.022 + 9, z * 0.022 - 4, 5);
+  return band * land * (peaks * 30 + 5);
+}
+// a wooden pier out to sea from the spawn beach, a lighthouse on the south-east headland, beach huts
+export const PIER = (() => {
+  const x = 14;
+  let z = 60;
+  while (z < 200 && baseHeight(x, z) > 0.4) z += 0.5; // walk south to the waterline
+  return { x, z0: z - 6, z1: z + 30, w: 1.8, deck: 1.35 }; // w 1.8: the deck covers whole grid cells (centres 12.5..15.5)
+})();
+export const LIGHTHOUSE = (() => {
+  // the highest bit of coast in the south-east quadrant
+  let best = { x: 90, z: 100, h: -9 };
+  for (let a = 0.35; a <= 1.2; a += 0.05) for (let r = 100; r <= 170; r += 2) {
+    const x = Math.sin(a) * r, z = Math.cos(a) * r, h = baseHeight(x, z);
+    if (h > 1.8 && h < 6 && baseHeight(x + Math.sin(a) * 8, z + Math.cos(a) * 8) < 0.4 && h > best.h) best = { x, z, h };
+  }
+  return { x: best.x, z: best.z, r: 2.4 };
+})();
+export const HUTS = [-44, -32, 32, 46, 58].map((dx, i) => {
+  const x = dx;
+  let z = 60;
+  while (z < 200 && baseHeight(x, z) > 1.25) z += 0.5;
+  return { x, z: z - 3, rot: (i % 2 ? 0.08 : -0.06), color: ['#e85d75', '#4fa3e0', '#f2c14e', '#5fbf8f', '#b07fe0'][i] };
+});
+
 export function height(x, z) {
+  let h = baseHeight(x, z);
+  // the pier deck is walkable over the water
+  if (Math.abs(x - PIER.x) < PIER.w && z > PIER.z0 && z < PIER.z1) h = Math.max(h, PIER.deck);
+  // buildings are obstacles (walls taller than a step)
+  if (Math.hypot(x - LIGHTHOUSE.x, z - LIGHTHOUSE.z) < LIGHTHOUSE.r) h += 6;
+  for (const hut of HUTS) if (Math.abs(x - hut.x) < 1.5 && Math.abs(z - hut.z) < 1.5) h += 3;
+  return h;
+}
+
+function baseHeight(x, z) {
   const land = island(x, z);
   let h;
   if (land < 0.25) h = lerp(-8, -0.6, ss(land, 0, 0.25));
@@ -43,7 +85,7 @@ export function height(x, z) {
     const ramp = ss(pathDist(x, z), 2.5, 7) * (1 - gap);
     h = lerp(h, 1.4 + terrace(h - 1.4, x, z, 2.6), ramp);
   }
-  return h;
+  return h + mountains(x, z, land);
 }
 
 // ---------------------------------------------------------------- walkability
@@ -58,8 +100,42 @@ export function grid() {
     H = new Float32Array(GRID * GRID);
     for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) H[j * GRID + i] = height(toWorld(i), toWorld(j));
     fillPits(H);
+    fixTraps(H);
   }
   return H;
+}
+// Coves between mountains and the sea can still be one-way (drop in, can't climb
+// out, the only other exit is water). Raise any cell you can reach from spawn but
+// can't walk back to spawn from, until there are none.
+function fixTraps(H) {
+  const ok = (a, b) => H[b] > 0.25 && H[b] - H[a] < MAX_RISE * 0.9;
+  const s = toCell(SPAWN.z) * GRID + toCell(SPAWN.x);
+  const flood = (forward) => {
+    const seen = new Uint8Array(GRID * GRID), stack = [s]; seen[s] = 1;
+    while (stack.length) {
+      const c = stack.pop(), ci = c % GRID, cj = (c - ci) / GRID;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const i = ci + di, j = cj + dj, m = j * GRID + i;
+        if (i < 0 || j < 0 || i >= GRID || j >= GRID || seen[m]) continue;
+        if (forward ? ok(c, m) : ok(m, c)) { seen[m] = 1; stack.push(m); }
+      }
+    }
+    return seen;
+  };
+  for (let pass = 0; pass < 40; pass++) {
+    const F = flood(true), R = flood(false);
+    let fixed = 0;
+    for (let c = 0; c < GRID * GRID; c++) {
+      if (!F[c] || R[c]) continue;
+      // lift toward the highest neighbour so a step out is possible
+      const ci = c % GRID, cj = (c - ci) / GRID;
+      let top = H[c];
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const i = ci + di, j = cj + dj; if (i >= 0 && j >= 0 && i < GRID && j < GRID) top = Math.max(top, H[j * GRID + i]); }
+      H[c] = Math.max(H[c], top - MAX_RISE * 0.8);
+      fixed++;
+    }
+    if (!fixed) return;
+  }
 }
 // Terrace noise leaves small pits a walker can drop into but never climb out
 // of. Flood inward from the sea, lowest first, raising any cell that sits more
@@ -138,6 +214,14 @@ export function findPath(sx, sz, tx, tz) {
       const d = Math.hypot(toWorld(i) - sx, toWorld(j) - sz);
       if (d < bd) { bd = d; best = c; }
     }
+    // standing on a steep edge (e.g. the side of the pier): nothing is a legal step up,
+    // but the player is right beside walkable ground, so start from it anyway
+    if (best < 0) for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const i = si + di, j = sj + dj, c = j * GRID + i;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID || !walk(c)) continue;
+      const d = Math.hypot(toWorld(i) - sx, toWorld(j) - sz);
+      if (d < bd) { bd = d; best = c; }
+    }
     if (best >= 0) { start = best; snapped = true; }
   }
   let goal = toCell(tz) * GRID + toCell(tx);
@@ -160,11 +244,15 @@ export function findPath(sx, sz, tx, tz) {
   const gx = goal % GRID, gz = Math.floor(goal / GRID);
   const nb = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
   let found = start === goal;
+  // if the goal can't be reached, head for the reachable cell that gets closest to it
+  let nearest = start, nearestD = Infinity;
   while (open.size && !found) {
     const [, c] = open.pop();
     if (closed[c]) continue;
     closed[c] = 1;
     if (c === goal) { found = true; break; }
+    const dd = Math.hypot((c % GRID) - gx, Math.floor(c / GRID) - gz);
+    if (dd < nearestD) { nearestD = dd; nearest = c; }
     const ci = c % GRID, cj = Math.floor(c / GRID);
     for (const [di, dj, k] of nb) {
       const i = ci + di, j = cj + dj;
@@ -175,10 +263,13 @@ export function findPath(sx, sz, tx, tz) {
       if (nc < cost[n]) { cost[n] = nc; came[n] = c; open.push(nc + Math.hypot(i - gx, j - gz), n); }
     }
   }
-  if (!found) return null;
+  if (!found) {
+    if (nearest === start || nearestD * CELL > 40) return null; // nowhere meaningfully closer
+    goal = nearest;
+  }
   const pts = [];
   for (let c = goal; c !== -1 && c !== start; c = came[c]) pts.unshift({ x: toWorld(c % GRID), z: toWorld(Math.floor(c / GRID)) });
-  pts.push({ x: tx, z: tz });
+  if (found) pts.push({ x: tx, z: tz });
   if (snapped) pts.unshift({ x: toWorld(start % GRID), z: toWorld(Math.floor(start / GRID)) });
   const out = [];
   let ax = sx, az = sz, k = 0;
@@ -200,6 +291,6 @@ export function randomLandPoint(rnd, filter = () => true) {
   return { x: 0, z: 60 };
 }
 
-export const SPAWN = (() => { for (let z = 110; z > 40; z--) if (height(pathX(z), z) > 1.4) return { x: pathX(z - 4), z: z - 4 }; return { x: 0, z: 80 }; })();
+export const SPAWN = (() => { for (let z = 170; z > 40; z--) if (height(pathX(z), z) > 1.4) return { x: pathX(z - 4), z: z - 4 }; return { x: 0, z: 120 }; })();
 // the Insider meeting circle sits around a campfire just inland from spawn
 export const MEETING_SPOT = { x: SPAWN.x, z: SPAWN.z - 6 };

@@ -32,9 +32,12 @@ async function soak() {
       if (d.bars >= 5) { const r = await act(b, 'dig'); if (r.found) b.found++; if (r.error && /meeting/.test(r.error)) await meeting(b); continue; }
       if (d.bars === 0) {
         heading += (Math.random() - 0.5) * 1.6;
-        const w = await act(b, 'walk_to', { target: { x: me.x + Math.sin(heading) * 30, z: me.z + Math.cos(heading) * 30 } });
+        const target = { x: me.x + Math.sin(heading) * 30, z: me.z + Math.cos(heading) * 30 };
+        const w = await act(b, 'walk_to', { target });
         if (w.error && /meeting/.test(w.error)) { await meeting(b); continue; }
-        if (!w.ok) { heading += Math.PI / 2; if (w.error) b.failed++; }
+        if (w.error && process.env.SOAK_LOG) (await import('node:fs')).appendFileSync(process.env.SOAK_LOG, `${me.x.toFixed(1)},${me.z.toFixed(1)},${target.x.toFixed(1)},${target.z.toFixed(1)},${w.error}\n`);
+        // blocked (usually the sea or a cliff): turn back toward the middle of the island
+        if (!w.ok) { heading = Math.atan2(-me.x, -me.z) + (Math.random() - 0.5) * 0.8; if (w.error) { b.failed++; b.why = `${w.error} at (${me.x.toFixed(1)}, ${me.z.toFixed(1)})`; } }
         continue;
       }
       const step = d.bars >= 4 ? 1.6 : d.bars >= 2 ? 3.5 : 6;
@@ -62,7 +65,7 @@ async function soak() {
       problems.push(`soak-${i} stuck on ${p.action} for 60s at (${pl.x.toFixed(1)}, ${pl.z.toFixed(1)})`);
     }
   }
-  for (const b of bots) if (b.failed > 100) problems.push(`soak-${b.i} trapped: ${b.failed} walks failed`);
+  for (const b of bots) if (b.failed > 100) { const p = g.players.get(b.id); problems.push(`soak-${b.i} trapped: ${b.failed} walks failed at (${p?.x.toFixed(1)}, ${p?.z.toFixed(1)}); last: ${b.why}`); }
   return { chests: bots.reduce((a, b) => a + b.found, 0), low: bots.filter((b) => b.found < 5).length, problems };
 }
 

@@ -68,7 +68,7 @@ async function play(i, deadline, tally, setToken) {
       heading += (Math.random() - 0.5) * 1.6;
       const tx = me.x + Math.sin(heading) * 30, tz = me.z + Math.cos(heading) * 30;
       const w = await act('walk_to', { target: { x: tx, z: tz } });
-      if (!w.ok) heading += Math.PI / 2;
+      if (!w.ok) heading = Math.atan2(-me.x, -me.z) + (Math.random() - 0.5) * 0.8; // blocked: head back inland
       continue;
     }
     // climb the signal: probe 4 directions with short steps

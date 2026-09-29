@@ -94,7 +94,7 @@ await test('watching the sunset: walks to the shore, faces the sun and shares th
   const obs = await a.observe();
   const orig = globalThis.setTimeout;
   const r = await Promise.race([a.sunset(obs.me), new Promise((res) => orig(() => res('timeout'), 40000))]);
-  assert.equal(r, 'watched the sunset');
+  assert.match(r, /^watched the sunset/);
   assert.ok(srv.game.events.some((e) => e.kind === 'moment' && e.who === 'Sunny'));
   assert.ok(journalOf(journal).some((l) => l.kind === 'sunset'));
 });

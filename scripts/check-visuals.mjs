@@ -15,6 +15,7 @@ const POLISH = process.argv.includes('--polish');
 const BACKENDS = process.argv.includes('--backends');
 const CAMERA = process.argv.includes('--camera');
 const INSIDER = process.argv.includes('--insider');
+const SCENIC = process.argv.includes('--scenic');
 const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
 const PORT = 5297, wait = (ms) => new Promise((r) => setTimeout(r, ms));
 execFileSync('npx', ['vite', 'build'], { stdio: 'ignore' });
@@ -47,7 +48,23 @@ await wait(2500);
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
 
-if (INSIDER) {
+if (SCENIC) {
+  const { PIER, LIGHTHOUSE } = await import('../src/shared/world.js');
+  const shots = [
+    { name: 'pier', x: PIER.x, z: PIER.z1 - 3, heading: 0, cam: { yaw: Math.PI, pitch: 0.2, dist: 9 } },
+    { name: 'mountains', x: -10, z: -60, heading: Math.PI, cam: { yaw: 0, pitch: 0.55, dist: 32 } },
+    { name: 'lighthouse', x: LIGHTHOUSE.x - 12, z: LIGHTHOUSE.z - 10, heading: Math.atan2(12, 10), cam: { yaw: Math.atan2(12, 10) + Math.PI, pitch: 0.42, dist: 14 } },
+    { name: 'beach-huts', x: -38, z: 112, heading: 0, cam: { yaw: Math.PI, pitch: 0.35, dist: 16 } },
+  ];
+  for (const sh of shots) {
+    me.x = sh.x; me.z = sh.z; me.y = height(sh.x, sh.z); me.heading = sh.heading; me.faceTo = sh.heading;
+    await page.evaluate((c) => Object.assign(window.__dbi.cam, c), sh.cam);
+    await wait(3500);
+    await page.screenshot({ path: `evidence/scenic-${sh.name}.png` });
+  }
+  execFileSync('ffmpeg', ['-v', 'error', '-y', ...shots.flatMap((sh) => ['-i', `evidence/scenic-${sh.name}.png`]), '-filter_complex', '[0][1]hstack[a];[2][3]hstack[b];[a][b]vstack,scale=1600:-1', 'evidence/scenic-strip.png']);
+  console.log(`shots: ${shots.map((x) => x.name).join(', ')}`);
+} else if (INSIDER) {
   await page.waitForFunction(() => !document.getElementById('ins-banner').hidden, { timeout: 25000 }).catch(() => {});
   await wait(1500);
   const hunt = await page.evaluate(() => ({ banner: document.getElementById('ins-banner').textContent, panel: !document.getElementById('ins-panel').hidden, role: document.getElementById('ins-role').textContent, leak: !document.getElementById('ins-leak').hidden }));
@@ -255,6 +272,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = SCENIC ? 'SCENIC' : INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

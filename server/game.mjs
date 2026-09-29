@@ -4,7 +4,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { InsiderGame } from './insider.mjs';
 import {
-  groundAt, canStep, findPath, randomLandPoint, SPAWN, MESAS, SIZE,
+  groundAt, canStep, findPath, randomLandPoint, SPAWN, MESAS, SIZE, PIER, LIGHTHOUSE, MEETING_SPOT,
 } from '../src/shared/world.js';
 
 export const MEME_STOCKS = [
@@ -32,7 +32,7 @@ const JUNK_CHANCE = 0.5;
 const STREAK_MULT = [1, 1, 1.5, 2, 2.5, 3];
 export const streakMultiplier = (streak) => STREAK_MULT[Math.min(streak, STREAK_MULT.length - 1)];
 const DETECT_RANGE = 28;
-const ACTIVE_CHESTS = 14;
+const ACTIVE_CHESTS = 24;
 const EMOTES = ['wave', 'cheer', 'sad', 'dance', 'shrug'];
 
 const rngFrom = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
@@ -220,6 +220,10 @@ export class Game {
   landmarks() {
     return [
       { name: 'spawn', x: round(SPAWN.x), z: round(SPAWN.z) },
+      { name: 'pier', kind: 'pier', x: round(PIER.x), z: round(PIER.z1 - 3) }, // the end of the pier: best sunset seat
+      { name: 'lighthouse', kind: 'lighthouse', x: round(LIGHTHOUSE.x - Math.sign(LIGHTHOUSE.x) * 5), z: round(LIGHTHOUSE.z - 5) },
+      { name: 'campfire', kind: 'campfire', x: round(MEETING_SPOT.x), z: round(MEETING_SPOT.z + 2.5) },
+      { name: 'mountains', kind: 'mountains', x: 0, z: -100 },
       ...MESAS.map((m) => ({ name: m.ticker, kind: 'mesa', x: round(m.x), z: round(m.z + m.r * 0.9) })),
     ];
   }

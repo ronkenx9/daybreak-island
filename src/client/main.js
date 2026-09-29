@@ -46,7 +46,7 @@ const act = (action, args) => new Promise((resolve) => {
 });
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
-  if (m.type === 'welcome') { me = m.id; showPrizePanel(); $('chat').hidden = false; }
+  if (m.type === 'welcome') { me = m.id; showPrizePanel(); }
   if (m.type === 'full') { $('splash').hidden = false; $('play').textContent = m.error; }
   if (m.type === 'result') { pending.get(m.rid)?.(m.out); pending.delete(m.rid); }
   if (m.type === 'snap') onSnap(m);
@@ -114,6 +114,7 @@ async function refreshInsider() {
   // during a meeting the chat box lives inside the meeting panel, under the votes
   const chatHome = !$('meeting').hidden ? $('meeting') : document.querySelector('.hud');
   if ($('chat').parentElement !== chatHome) chatHome.appendChild($('chat'));
+  if (!$('meeting').hidden) $('chat').hidden = false;
   if (inRound && st.phase === 'meeting') {
     const box = $('meeting-votes');
     const names = st.players.filter((n) => n !== players.get(me)?.name);
@@ -140,6 +141,8 @@ $('chat').addEventListener('submit', (e) => {
   $('chat-text').value = '';
   $('chat-text').blur();
 });
+// the chat box only shows while you type (and always inside a meeting)
+$('chat-text').addEventListener('blur', () => { if ($('meeting').hidden) $('chat').hidden = true; });
 
 // ---------------------------------------------------------------- HUD
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

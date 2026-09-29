@@ -19,7 +19,7 @@ export const PERSONAS = [
 const ACTIONS_HELP = `Actions (pick exactly one):
 - "hunt": sweep your metal detector, follow the beeps and dig when it maxes out (takes up to a minute)
 - "dig": dig right here on a hunch without the detector (almost always junk; only rarely, for a laugh)
-- "go": walk somewhere: {"to": "<landmark or player name>"}  landmarks: spawn, TSLA, AMZN, NFLX, PLTR, AMD (company hills)
+- "go": walk somewhere: {"to": "<landmark or player name>"}  landmarks: spawn, pier, lighthouse, campfire, mountains, TSLA, AMZN, NFLX, PLTR, AMD (company hills)
 - "wander": explore in a direction: {"dir": "north"|"south"|"east"|"west"}
 - "sunset": walk to the shore, stop and watch the sunset for a while
 - "follow": walk after a player for ~30s: {"who": "<name>"}
@@ -77,6 +77,11 @@ export class Agent {
     const near = landmarks.map((l) => ({ ...l, d: dist(l, me) })).sort((a, b) => a.d - b.d)[0];
     const h = height(me.x, me.z);
     const ins = await this.act('insider');
+    // log each round's outcome once (for the highlights reel)
+    if (ins?.lastResult && ins.lastResult.round !== this.lastRound) {
+      if (this.lastRound !== undefined) this.note('reveal', ins.lastResult.outcome === 'caught' ? `${ins.lastResult.insider} was the insider and got caught` : ins.lastResult.outcome === 'escaped' ? `the insider ${ins.lastResult.insider} got away with $${ins.lastResult.ticker}` : 'round called off', { ...ins.lastResult });
+      this.lastRound = ins.lastResult.round;
+    }
     return { s, me, near, h, ins };
   }
   describeInsider(ins) {
@@ -197,7 +202,12 @@ Reply with ONE JSON object only, no prose: {"thought": "<why, max 15 words>", "d
     return 'searched but the beeps went nowhere';
   }
   async sunset(me) {
-    // the nearest bit of shore that faces the sun (south)
+    // the end of the pier is the best seat if it's not too far; else the nearest south-facing shore
+    const pier = this.landmarks?.find((l) => l.name === 'pier');
+    if (pier && dist(pier, me) < 90) {
+      const w = await this.act('walk_to', { target: 'pier' });
+      if (w.ok) return this.watch('on the pier');
+    }
     let spot = null;
     for (let r = 6; r <= 70 && !spot; r += 4) {
       for (let a = -1.2; a <= 1.2; a += 0.3) {
@@ -208,12 +218,15 @@ Reply with ONE JSON object only, no prose: {"thought": "<why, max 15 words>", "d
     if (!spot) return 'could not see the sea from here';
     const w = await this.act('walk_to', { target: spot });
     if (!w.ok) return 'could not reach the shore';
+    return this.watch('on the shore');
+  }
+  async watch(where) {
     await this.act('face', { heading: SUN_HEADING });
-    await this.act('moment', { text: 'is watching the sunset' });
+    await this.act('moment', { text: `is watching the sunset ${where}` });
     const st = await this.act('state');
-    this.note('sunset', 'watching the sunset', { x: st.you.x, z: st.you.z });
+    this.note('sunset', `watching the sunset ${where}`, { x: st.you.x, z: st.you.z });
     await sleep(20000);
-    return 'watched the sunset';
+    return `watched the sunset ${where}`;
   }
 
   // ---------------------------------------------------------------- insider meeting

@@ -45,7 +45,7 @@ await test('detector rises toward a chest and dig claims it', async () => {
   assert.equal(r.found, true);
   assert.ok(Object.keys(p.portfolio).length > 0);
   assert.ok(g.chests.every((x) => x !== c), 'chest removed');
-  assert.equal(g.chests.length, 14, 'respawned to keep the island stocked');
+  assert.equal(g.chests.length, 24, 'respawned to keep the island stocked');
 });
 
 await test('digging far from any chest finds nothing', async () => {
