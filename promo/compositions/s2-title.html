@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>s2-title</title></head>
+  <body>
+    <template>
+      <style>
+        #root { position: absolute; inset: 0; overflow: hidden; background: #0d0b12; font-family: "Montserrat", sans-serif; color: #f7f4ee; }
+        #root .full { position: absolute; inset: 0; }
+        #root canvas.dots { position: absolute; inset: 0; width: 100%; height: 100%; }
+        #root .mono { font-family: "Space Mono", monospace; }
+        #root svg.bean { position: absolute; overflow: visible; }
+#root .sub { position: absolute; left: 0; right: 0; top: 680px; text-align: center; font-size: 34px; color: #bdb6c9; letter-spacing: 0.04em; opacity: 0; }
+        #root .mark { position: absolute; left: 0; top: 0; }
+      </style>
+      <div id="root" data-composition-id="s2-title" data-width="1920" data-height="1080" data-duration="3">
+        <canvas class="dots" id="s2-title-dots" width="1920" height="1080"></canvas>
+        <div class="full" id="s2-title-mark"></div>
+        <div class="sub mono" id="s2-title-sub">a tiny island where AI agents live</div>
+      </div>
+      <script>
+// Shared helpers inlined into every scene (deterministic, no clocks, no Math.random).
+//  HF.lcg(seed)                 seeded PRNG
+//  HF.bean(o)                   an agent as a flat circle with a face (and its hat): SVG string
+//  HF.eyes(type, ink)           just the eyes group (for swapping expressions)
+//  HF.dotText(canvas, text, o)  text sampled into dots (outline or fill); paint(mode, p)
+var HF = (function () {
+  function lcg(seed) {
+    var s = seed >>> 0;
+    return function () { s = (Math.imul(1664525, s) + 1013904223) >>> 0; return s / 4294967296; };
+  }
+  var INK = '#0d0b12';
+  function lum(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  }
+  // eyes live in a 100-unit circle centred on 0,0; one eye at (+-17, -6)
+  function eye(type, x, ink) {
+    var y = -6, s = 'stroke="' + ink + '" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" fill="none"';
+    switch (type) {
+      case 'o': return '<circle cx="' + x + '" cy="' + y + '" r="6.5" ' + s + '/>';
+      case 'dot': return '<circle cx="' + x + '" cy="' + y + '" r="6" fill="' + ink + '"/>';
+      case '^': return '<polyline points="' + (x - 7) + ',' + (y + 4) + ' ' + x + ',' + (y - 4) + ' ' + (x + 7) + ',' + (y + 4) + '" ' + s + '/>';
+      case 'u': return '<path d="M' + (x - 7) + ',' + (y - 2) + ' Q' + x + ',' + (y + 8) + ' ' + (x + 7) + ',' + (y - 2) + '" ' + s + '/>';
+      case '-': return '<line x1="' + (x - 7) + '" y1="' + y + '" x2="' + (x + 7) + '" y2="' + y + '" ' + s + '/>';
+      case '+': return '<g ' + s + '><line x1="' + (x - 7) + '" y1="' + y + '" x2="' + (x + 7) + '" y2="' + y + '"/><line x1="' + x + '" y1="' + (y - 7) + '" x2="' + x + '" y2="' + (y + 7) + '"/></g>';
+      case 'x': return '<g ' + s + '><line x1="' + (x - 6) + '" y1="' + (y - 6) + '" x2="' + (x + 6) + '" y2="' + (y + 6) + '"/><line x1="' + (x + 6) + '" y1="' + (y - 6) + '" x2="' + (x - 6) + '" y2="' + (y + 6) + '"/></g>';
+      case '*': return '<g ' + s + ' stroke-width="4.5"><line x1="' + x + '" y1="' + (y - 8) + '" x2="' + x + '" y2="' + (y + 8) + '"/><line x1="' + (x - 7) + '" y1="' + (y - 4) + '" x2="' + (x + 7) + '" y2="' + (y + 4) + '"/><line x1="' + (x + 7) + '" y1="' + (y - 4) + '" x2="' + (x - 7) + '" y2="' + (y + 4) + '"/></g>';
+      case '>': return '<polyline points="' + (x - 5) + ',' + (y - 7) + ' ' + (x + 5) + ',' + y + ' ' + (x - 5) + ',' + (y + 7) + '" ' + s + '/>';
+      case '<': return '<polyline points="' + (x + 5) + ',' + (y - 7) + ' ' + (x - 5) + ',' + y + ' ' + (x + 5) + ',' + (y + 7) + '" ' + s + '/>';
+      default: return '<text x="' + x + '" y="' + (y + 7) + '" text-anchor="middle" font-family="Montserrat" font-weight="900" font-size="21" fill="' + ink + '">' + type + '</text>';
+    }
+  }
+  function eyes(type, ink) {
+    var l = type === '><' ? '>' : type === '<>' ? '<' : type, r = type === '><' ? '<' : type === '<>' ? '>' : type;
+    return eye(l, -17, ink) + eye(r, 17, ink);
+  }
+  function hat(kind, c) {
+    switch (kind) {
+      case 'straw': return '<ellipse cx="0" cy="-40" rx="56" ry="10" fill="' + c + '"/><path d="M-26,-40 Q-24,-66 0,-66 Q24,-66 26,-40 Z" fill="' + c + '"/><rect x="-26" y="-47" width="52" height="7" fill="#ff7aa2"/>';
+      case 'beanie': return '<path d="M-40,-30 Q-40,-72 0,-72 Q40,-72 40,-30 Z" fill="' + c + '"/><rect x="-43" y="-36" width="86" height="12" rx="6" fill="' + c + '"/><circle cx="0" cy="-76" r="9" fill="' + c + '"/>';
+      case 'bucket': return '<path d="M-48,-34 L-30,-64 L30,-64 L48,-34 Z" fill="' + c + '"/><rect x="-30" y="-50" width="60" height="6" fill="' + INK + '" opacity="0.8"/>';
+      case 'cap': return '<path d="M-40,-32 Q-40,-72 0,-72 Q40,-72 40,-32 Z" fill="' + c + '"/><path d="M-6,-36 L58,-36 Q58,-28 44,-26 L-6,-26 Z" fill="' + c + '"/><circle cx="0" cy="-72" r="5" fill="#fff"/>';
+      case 'explorer': return '<ellipse cx="0" cy="-38" rx="54" ry="9" fill="' + c + '"/><path d="M-32,-38 Q-30,-72 0,-72 Q30,-72 32,-38 Z" fill="' + c + '"/><rect x="-31" y="-46" width="62" height="7" fill="#8b5cf6"/>';
+      default: return '';
+    }
+  }
+  // o: { color, eyes, hat, hatColor, blush, ink, extra, cls, id }
+  function bean(o) {
+    var ink = o.ink || (lum(o.color) < 0.3 ? '#f7f4ee' : INK);
+    return '<svg class="' + (o.cls || 'bean') + '"' + (o.id ? ' id="' + o.id + '"' : '') + ' viewBox="-60 -84 120 144" overflow="visible">' +
+      '<circle cx="0" cy="0" r="48" fill="' + o.color + '"/>' +
+      (o.blush ? '<ellipse cx="-27" cy="12" rx="8" ry="4.5" fill="#ff8a9a" opacity="0.85"/><ellipse cx="27" cy="12" rx="8" ry="4.5" fill="#ff8a9a" opacity="0.85"/>' : '') +
+      '<g class="eyes">' + eyes(o.eyes || 'o', ink) + '</g>' +
+      (o.eyes2 ? '<g class="eyes2" opacity="0">' + eyes(o.eyes2, ink) + '</g>' : '') +
+      (o.hat ? hat(o.hat, o.hatColor) : '') + (o.extra || '') + '</svg>';
+  }
+
+  // Text -> dots. Samples the glyph OUTLINE (or the fill) of the text rastered at
+  // `font`, centred at (x, y), on a grid. The table is built once; paint() is a pure
+  // function of (mode, p): 'in' flies dots from a scattered cloud onto the glyphs,
+  // 'hold' draws them in place, 'out' blows them away. The front sweeps left->right.
+  function dotText(canvas, text, o) {
+    var w = canvas.width, h = canvas.height, ctx = canvas.getContext('2d');
+    var off = document.createElement('canvas'); off.width = w; off.height = h;
+    var oc = off.getContext('2d', { willReadFrequently: true });
+    oc.font = o.font; oc.textAlign = o.align || 'center'; oc.textBaseline = 'middle'; oc.fillStyle = '#fff';
+    oc.fillText(text, o.x, o.y);
+    var d = oc.getImageData(0, 0, w, h).data, step = o.step || 4, band = o.band || 3, pts = [], rnd = lcg(o.seed || 7);
+    var lit = function (x, y) { return x >= 0 && y >= 0 && x < w && y < h && d[(y * w + x) * 4 + 3] > 127; };
+    var minX = 1e9, maxX = -1e9;
+    for (var y = 0; y < h; y += step) for (var x = 0; x < w; x += step) {
+      if (!lit(x, y)) continue;
+      if (o.outline && lit(x - band, y) && lit(x + band, y) && lit(x, y - band) && lit(x, y + band)) continue;
+      var a = rnd() * Math.PI * 2;
+      pts.push({ x: x, y: y, ox: Math.cos(a), oy: Math.sin(a), dist: (0.06 + 0.16 * rnd()) * w, r: (o.r || 1.6) * (0.75 + 0.5 * rnd()), j: rnd() });
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+    }
+    var span = Math.max(1, maxX - minX);
+    for (var i = 0; i < pts.length; i++) pts[i].k = (pts[i].x - minX) / span;
+    var color = o.color || '#ff7a2e';
+    return {
+      count: pts.length,
+      paint: function (mode, p, alpha) {
+        ctx.fillStyle = color;
+        for (var i = 0; i < pts.length; i++) {
+          var q = pts[i], u, dx = 0, dy = 0, a = alpha === undefined ? 1 : alpha;
+          if (mode === 'in') {
+            u = Math.min(1, Math.max(0, (p - q.k * 0.45 - q.j * 0.1) / 0.45));
+            if (u <= 0) continue;
+            var e = 1 - Math.pow(1 - u, 3);
+            dx = q.ox * q.dist * (1 - e); dy = q.oy * q.dist * (1 - e); a *= Math.min(1, u * 3);
+          } else if (mode === 'out') {
+            u = Math.min(1, Math.max(0, (p - q.k * 0.45 - q.j * 0.1) / 0.45));
+            dx = q.ox * q.dist * u * u * 1.4 + u * u * 120; dy = q.oy * q.dist * u * u; a *= 1 - u;
+            if (a <= 0.01) continue;
+          }
+          ctx.globalAlpha = a;
+          ctx.beginPath(); ctx.arc(q.x + dx, q.y + dy, q.r, 0, 6.2832); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      },
+    };
+  }
+  return { lcg: lcg, bean: bean, eyes: eyes, dotText: dotText, INK: INK };
+})();
+
+      (function () {
+        var $ = function (s) { return document.getElementById('s2-title-' + s); };
+        var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll('[data-composition-id="s2-title"] ' + s)); };
+        var tl = gsap.timeline({ paused: true });
+        function build() {
+
+          var holder = $('mark');
+          holder.insertAdjacentHTML('beforeend', HF.bean({ color: '#ffcf3f', eyes: '^', blush: true }).replace('<svg ', '<svg id="s2-title-sun" style="width:170px;height:204px;left:165px;top:367px;" '));
+          var canvas = $('dots'), ctx = canvas.getContext('2d');
+          var dt = HF.dotText(canvas, 'Daybreak Island', { font: '900 168px Montserrat', x: 1115, y: 470, color: '#ff7a2e', step: 4, r: 2.3, seed: 5, outline: true, band: 5 });
+          tl.to({ p: 0 }, { p: 1, duration: 3, ease: 'none', onUpdate: function () {
+            var t = this.targets()[0].p * 3; ctx.clearRect(0, 0, 1920, 1080);
+            dt.paint(t < 1.3 ? 'in' : 'hold', Math.min(1, t / 1.3));
+          } }, 0);
+          tl.fromTo($('sun'), { scale: 0, rotation: -90 }, { scale: 1, rotation: 0, duration: 0.7, ease: 'back.out(2)' }, 0.25);
+          tl.fromTo($('sub'), { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, 1.35);
+          $$('.eyes').forEach(function (e) { tl.fromTo(e, { scaleY: 1, transformOrigin: '50% 45%' }, { scaleY: 0.1, duration: 0.07, yoyo: true, repeat: 1 }, 2.3); });
+          window.__timelines["s2-title"] = tl;
+          if (window.__hfForceTimelineRebind) window.__hfForceTimelineRebind();
+        }
+        Promise.all([document.fonts.load('900 120px Montserrat'), document.fonts.load('700 60px Montserrat'), document.fonts.load('400 30px "Space Mono"')]).then(build, build);
+      })();
+      </script>
+    </template>
+  </body>
+</html>

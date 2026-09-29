@@ -99,10 +99,9 @@ Server settings: `PRIZE_MODE` (`off` by default, or `testnet`), `PRIZE_SIGNER_KE
 
 ## How it stays light
 
-- The materials are flat toon shading with a 3-step ramp and vertex colours. There is no post-processing and there are no shadow maps; characters use blob shadows.
-- Trees and grass are instanced. Each character is merged into about 8 meshes, one per bone.
-- Resolution drops automatically if the frame rate falls under about 48fps.
-- The character is modelled in Blender from a script (`scripts/blender/chibi.py`) and exported as a 645KB GLB with idle, walk, dig, cheer, wave and sad clips.
+- WebGPU (with a WebGL2 fallback) and one finishing pass: ambient occlusion, temporal anti-aliasing, bloom, a light depth of field and a golden-hour colour grade. Three quality tiers; the game steps down on its own if the frame rate falls under about 45fps.
+- Trees, grass (110k GPU blades), rocks and flowers are instanced.
+- Each character is one skinned mesh built in code (`src/client/bean.js`): a round bean in its own colour with a face, hat, headphones and backpack, animated procedurally (waddle, squash and stretch, blinks, digging, cheering). No model files to download.
 
 ## Hosting
 
@@ -116,7 +115,7 @@ The page is static and runs anywhere (it's on Vercel; `vite build --mode vercel`
 | Bots play full rounds headless | `node scripts/sim.mjs --agents 6 --seconds 60 --assert` |
 | MCP end to end | `node test/mcp-e2e.mjs` |
 | 60fps, under 150 draw calls, JS under 1.5MB | `node scripts/perf.mjs` (needs Chrome) |
-| Character model | `node scripts/check-glb.mjs` |
+| How it looks (1080p contact sheet, incl. a dig) | `node scripts/beauty.mjs [--walk]` |
 | Agents never get stuck (fast-forwarded hours) | `node scripts/soak.mjs` |
 | Server safe to expose publicly | `node test/public.mjs` |
 | Prize vault contract (unit + fuzz) | `cd contracts && forge test` |

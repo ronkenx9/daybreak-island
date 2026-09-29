@@ -60,29 +60,33 @@ export async function makeRenderer(container, { tier: forced, backend } = {}) {
   scene.fog = new THREE.Fog(FOG_COLOR, 90, 380);
   const sky = skyDome();
   scene.add(sky);
-  const hemi = new THREE.HemisphereLight('#b09ae6', '#5e4056', 1.0); // lavender sky fill, plum bounce
-  const sun = new THREE.DirectionalLight('#ffb070', 5.2);
+  const hemi = new THREE.HemisphereLight('#bdb0d8', '#7a6258', 0.9); // lavender sky fill, plum bounce
+  const sun = new THREE.DirectionalLight('#ffc89e', 5.4);
   const S = 36; // shadow box half-size around the focus
   Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 220 });
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.04;
   // camera-side fill: keeps backlit faces readable (warm bounce, no shadows)
-  const fill = new THREE.DirectionalLight('#ffc9b8', 1.1);
+  const fill = new THREE.DirectionalLight('#ffc9b8', 0.5);
   scene.add(hemi, sun, sun.target, fill, fill.target);
   const camera = new THREE.PerspectiveCamera(40, 1, 0.3, 450);
 
   // ---------------------------------------------------------------- finishing chain
   const pipeline = new THREE.RenderPipeline(renderer);
-  const focus = { distance: uniform(12), range: uniform(7), bokeh: uniform(2.2) };
+  const focus = { distance: uniform(12), range: uniform(22), bokeh: uniform(0.9) };
   const grade = (img) => {
-    // warm highlights, cool purple shade, a bit more colour, soft vignette
-    const c = img.rgb;
+    // art-directed golden hour: lavender shade, peach highlights, greens pulled
+    // toward warm sage so they sit with the sand, gentle filmic contrast, soft vignette
+    const c = img.rgb.toVar();
     const l = luminance(c);
-    const split = mix(vec3(0.93, 0.9, 1.08), vec3(1.07, 1.0, 0.9), smoothstep(0.08, 0.7, l));
-    const sat = mix(vec3(l), c.mul(split), 1.18);
-    const contrast = sat.sub(0.18).mul(1.12).add(0.18).max(0);
+    c.addAssign(vec3(0.03, 0.01, 0.045).mul(float(1).sub(smoothstep(0.0, 0.45, l))));
+    const green = clamp(c.g.sub(max(c.r, c.b)).mul(2.2), 0, 0.5);
+    c.assign(mix(c, vec3(l.mul(1.02), l.mul(1.03), l.mul(0.86)), green));
+    const split = mix(vec3(0.95, 0.93, 1.06), vec3(1.05, 1.0, 0.93), smoothstep(0.1, 0.75, l));
+    const sat = mix(vec3(l), c.mul(split), 1.06);
+    const contrast = sat.sub(0.32).mul(1.06).add(0.32).max(0);
     const q = screenUV.sub(0.5);
-    const vig = float(1).sub(dot(q, q).mul(0.75));
+    const vig = float(1).sub(dot(q, q).mul(0.55));
     return vec4(clamp(contrast, 0, 64).mul(vig), 1);
   };
   const passes = {};

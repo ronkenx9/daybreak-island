@@ -28,8 +28,8 @@ export const toon = (opts) => new THREE.MeshToonNodeMaterial({ gradientMap: toon
 
 const C = (h) => new THREE.Color(h);
 const PAL = {
-  sand: C('#f2d99c'), wet: C('#d9bd80'), grass: C('#8fc23a'), grassLight: C('#b8d94c'), grassDark: C('#5f9a31'),
-  cliff: C('#6b6560'), cliffDark: C('#46403d'), dirt: C('#c4935a'), snow: C('#f1eaf7'),
+  sand: C('#efd0b0'), wet: C('#c4a08e'), grass: C('#9ab65c'), grassLight: C('#c4c873'), grassDark: C('#5f8649'),
+  cliff: C('#7d7075'), cliffDark: C('#4f4552'), dirt: C('#caa183'), snow: C('#f4ecf7'),
 };
 const flat = (x, z) => { const e = 1, a = height(x, z); return Math.max(Math.abs(height(x + e, z) - a), Math.abs(height(x, z + e) - a)) < 0.35; };
 
@@ -74,7 +74,7 @@ const glitter = Fn(([p, strength, scale]) => {
   const n = normalize(vec3(n1.mul(strength), 1, n2.mul(strength)));
   const view = normalize(cameraPosition.sub(positionWorld));
   const r = reflect(view.negate(), n);
-  return pow(max(dot(r, uSun), 0), 220).mul(9);
+  return pow(max(dot(r, uSun), 0), 900).mul(16);
 });
 
 function terrain() {
@@ -106,7 +106,7 @@ function terrain() {
   const speck = mx_noise_float(positionWorld.xz.mul(2.3)).mul(0.5).add(0.5).mul(0.6).add(mx_noise_float(positionWorld.xz.mul(7)).mul(0.5).add(0.5).mul(0.4));
   const wet = smoothstep(1.0, 0.55, h).mul(smoothstep(0.1, 0.3, h));
   mat.colorNode = vec3(float(0.9).add(speck.mul(0.18)).mul(mix(float(1), float(0.62), wet)));
-  mat.emissiveNode = vec3(1.0, 0.8, 0.6).mul(glitter(positionWorld.xz, 0.5, 3.0)).mul(wet);
+  mat.emissiveNode = vec3(1.0, 0.8, 0.6).mul(glitter(positionWorld.xz, 0.7, 7.0)).mul(wet);
   const m = new THREE.Mesh(geo, mat);
   m.receiveShadow = true;
   return m;
@@ -126,7 +126,7 @@ function water() {
     const rim = smoothstep(0.035, 0.0, depth);
     const wave = smoothstep(0.8, 1.0, sin(depth.mul(45).sub(uTime.mul(2.2)).add(mx_noise_float(positionWorld.xz.mul(0.3)).mul(4)))).mul(smoothstep(0.18, 0.02, depth));
     col.assign(mix(col, vec3(1.0, 0.93, 0.88), clamp(rim.mul(0.8).add(wave.mul(0.55)), 0, 1)));
-    col.addAssign(vec3(1.0, 0.85, 0.65).mul(glitter(positionWorld.xz, 0.45, 1.6)));
+    col.addAssign(vec3(1.0, 0.85, 0.65).mul(glitter(positionWorld.xz, 0.6, 5.5)));
     return col;
   })();
   mat.opacityNode = float(0.94);
@@ -243,8 +243,9 @@ function grassField() {
 // Foliage close to the camera dissolves (screen-door dither) so it never blocks the view
 function seeThrough(mat, near = 3.5, far = 8) {
   const d = distance(positionWorld, cameraPosition);
-  // changes every frame, so temporal anti-aliasing averages it into smooth transparency
-  const dither = hash(screenCoordinate.x.add(screenCoordinate.y.mul(4096)).add(float(frameId).mod(64).mul(7919)));
+  // interleaved gradient noise: a fine, stable screen pattern (a per-frame random one
+  // made temporal AA reject its history and left the canopy grainy)
+  const dither = fract(float(52.9829189).mul(fract(dot(screenCoordinate.xy, vec2(0.06711056, 0.00583715)))));
   mat.alphaTest = 0.5;
   mat.opacityNode = step(dither, smoothstep(near, far, d)); // keep a pixel when it is farther than its dither threshold
 }
@@ -309,23 +310,33 @@ const land = (x, z, h) => open(x, z, h) && spawnClear(x, z);
 function forests() {
   // trees grow in clumps where a forest noise is high
   const forestMask = (x, z) => N.fbm(x * 0.018 + 5, z * 0.018 - 3, 3);
-  const spots = scatter(1300, (x, z, h) => land(x, z, h) && forestMask(x, z) > 0.05, 1.9, 42000);
+  const spots = scatter(950, (x, z, h) => land(x, z, h) && forestMask(x, z) > 0.05, 1.9, 42000);
   const lumps = [];
   for (let k = 0; k < 9; k++) {
     const a = (k / 9) * Math.PI * 2, rr = k === 0 ? 0 : 0.75 + (k % 3) * 0.15;
     const y = k === 0 ? 3.3 : 2.3 + (k % 3) * 0.45;
-    lumps.push([lumpy(new THREE.IcosahedronGeometry(k === 0 ? 1.25 : 0.95 - (k % 2) * 0.12, 1), 0.14, k).translate(Math.cos(a) * rr, y, Math.sin(a) * rr), '#ffffff', 0.55]);
+    lumps.push([lumpy(new THREE.IcosahedronGeometry(k === 0 ? 1.25 : 0.95 - (k % 2) * 0.12, 2), 0.1, k).translate(Math.cos(a) * rr, y, Math.sin(a) * rr), '#ffffff', 0.55]);
   }
   const crownGeo = baked(lumps);
+  // soft 'cloud' shading: normals mostly point out from the crown's centre, so the
+  // whole canopy shades as one round form (lit side to shade side) instead of facets
+  {
+    const p = crownGeo.attributes.position, nr = crownGeo.attributes.normal, v = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.set(p.getX(i), (p.getY(i) - 2.8) * 1.3, p.getZ(i)).normalize();
+      n.set(nr.getX(i), nr.getY(i), nr.getZ(i)).lerp(v, 0.75).normalize();
+      nr.setXYZ(i, n.x, n.y, n.z);
+    }
+  }
   const crownMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
   windy(crownMat, 0.025);
-  seeThrough(crownMat, 4, 10);
+  seeThrough(crownMat, 2.5, 6);
   const trunkGeo = baked([[new THREE.CylinderGeometry(0.16, 0.28, 2.4, 6).translate(0, 1.2, 0), '#6b4a33', 0.3]]);
-  const greens = ['#3d7d3f', '#4a8c44', '#34703a', '#5a9a47', '#2f6636'].map(C), autumn = ['#d99a4a', '#c9853c', '#e0b25a'].map(C);
+  const greens = ['#58845a', '#66925f', '#4d7a54', '#76a066', '#46704f'].map(C), autumn = ['#e3a262', '#d68d58', '#eab872'].map(C);
   const scale = (s) => 0.7 + (N.noise(s.x * 0.3, s.z * 0.3) * 0.5 + 0.5) * 0.7;
   const crowns = instanced(crownGeo, crownMat, spots, (d, s) => { d.position.set(s.x, s.h - 0.15, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(scale(s)); });
   const trunkMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
-  seeThrough(trunkMat, 4, 10);
+  seeThrough(trunkMat, 2.5, 6);
   const trunks = instanced(trunkGeo, trunkMat, spots, (d, s) => { d.position.set(s.x, s.h - 0.15, s.z); d.scale.setScalar(scale(s)); });
   spots.forEach((s, i) => crowns.setColorAt(i, (N.noise(s.x * 0.05 + 9, s.z * 0.05) > 0.45 ? autumn : greens)[i % (N.noise(s.x * 0.05 + 9, s.z * 0.05) > 0.45 ? 3 : 5)]));
   for (const m of [crowns, trunks]) { m.castShadow = true; m.receiveShadow = true; }
@@ -342,9 +353,9 @@ function props(treeSpots) {
   const bushGeo = baked([0, 1, 2, 3].map((k) => [lumpy(new THREE.IcosahedronGeometry(0.55 - k * 0.06, 1), 0.15, k + 20).translate(Math.cos(k * 1.9) * 0.45, 0.35 + (k === 0) * 0.25, Math.sin(k * 1.9) * 0.45), '#ffffff', 0.5]));
   const bushSpots = scatter(850, (x, z, h) => open(x, z, h) && Math.hypot(x, z - 84) > 5 && (near(x, z, 5) || rnd() < 0.3), 1.2);
   const bushMat = lambert();
-  seeThrough(bushMat, 2.5, 6);
+  seeThrough(bushMat, 1.8, 4);
   const bushes = instanced(bushGeo, bushMat, bushSpots, (d, s) => { d.position.set(s.x, s.h - 0.05, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.7 + rnd() * 0.8); });
-  bushSpots.forEach((_, i) => bushes.setColorAt(i, C(['#4f8f3a', '#5f9e3f', '#467f36', '#7aa84a'][i % 4])));
+  bushSpots.forEach((_, i) => bushes.setColorAt(i, C(['#557f48', '#63904f', '#4b7442', '#7f9f58'][i % 4])));
   bushes.castShadow = true;
   meshes.push(bushes);
 
@@ -357,7 +368,7 @@ function props(treeSpots) {
   windy(fernMat, 0.06);
   const fernSpots = scatter(1000, (x, z, h) => open(x, z, h), 1.0);
   const ferns = instanced(fernGeo, fernMat, fernSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.7); });
-  fernSpots.forEach((_, i) => ferns.setColorAt(i, C(['#7fb04a', '#6aa23f', '#93bf55'][i % 3])));
+  fernSpots.forEach((_, i) => ferns.setColorAt(i, C(['#86a856', '#739c4c', '#98b562'][i % 3])));
   ferns.castShadow = true;
   meshes.push(ferns);
 
@@ -469,7 +480,7 @@ function huts() {
   for (const h of HUTS) {
     const geo = baked([
       [new THREE.BoxGeometry(2.4, 1.9, 2.2).translate(0, 1.55, 0), h.color, 0.25],
-      [new THREE.CylinderGeometry(0.01, 1.75, 1.1, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 0.92).translate(0, 3.05, 0), '#3d3346', 0],
+      [new THREE.CylinderGeometry(0.01, 1.75, 1.1, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 0.92).translate(0, 3.05, 0), '#5a4a5e', 0],
       [new THREE.BoxGeometry(0.7, 1.2, 0.05).translate(0, 1.2, 1.11), '#2a2230', 0],
       ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => [new THREE.CylinderGeometry(0.08, 0.08, 0.9, 5).translate(sx * 1.05, 0.3, sz * 0.95), '#6b4a33', 0]),
     ]);

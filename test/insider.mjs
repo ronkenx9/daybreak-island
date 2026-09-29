@@ -2,6 +2,7 @@
 //   node test/insider.mjs
 import assert from 'node:assert/strict';
 import { Game } from '../server/game.mjs';
+import { HAT } from '../server/insider.mjs';
 
 const FAST = { minPlayers: 4, firstDelay: 1, cooldown: 2, hunt: 5, meeting: 4, reveal: 1, clueChance: 1, maxClues: 3 };
 let n = 0;
@@ -43,9 +44,8 @@ await test('crew digs turn up true private clues; the insider gets none', async 
   assert.ok(r.insiderClue, 'clue with the dig result');
   const all = [];
   for (let i = 0; i < 3; i++) { const c = (await dig(g, crew[1])).insiderClue; if (c) all.push(c); }
-  const hatWord = { racer: 'blue', midnight: 'black', electric: 'bright blue', cloud: 'white', orbit: 'white' }[ins.look];
   for (const c of [r.insiderClue, ...all]) {
-    if (c.includes('hat')) assert.ok(c.includes(`${hatWord} hat`), `hat clue is true (${c})`);
+    if (c.includes('wears')) assert.ok(c.endsWith(HAT[ins.look]), `hat clue is true (${c})`);
     if (c.includes('found')) assert.match(c, /found \d+ chest/);
   }
   assert.equal(new Set(all).size, all.length, 'no repeated clue');

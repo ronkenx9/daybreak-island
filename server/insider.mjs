@@ -11,7 +11,7 @@
 // same actions: insider (your view of the round), vote, leak.
 import { MEETING_SPOT } from '../src/shared/world.js';
 
-export const HAT = { racer: 'blue', midnight: 'black', electric: 'bright blue', cloud: 'white', orbit: 'white', afterhours: 'charcoal' };
+export const HAT = { racer: 'a red cap', midnight: 'an orange beanie', electric: 'a yellow bucket hat', cloud: 'a straw hat', orbit: 'a white explorer hat', afterhours: 'a black beanie' };
 const DEFAULTS = { minPlayers: 4, firstDelay: 45, cooldown: 60, hunt: 180, meeting: 90, reveal: 12, clueChance: 0.4, maxClues: 3 };
 const round2 = (v) => Math.round(v * 100) / 100;
 
@@ -137,7 +137,7 @@ export class InsiderGame {
     if (!ins) return null;
     const near = this.g.landmarks().map((l) => ({ ...l, d: Math.hypot(l.x - ins.x, l.z - ins.z) })).sort((a, b) => a.d - b.d)[0];
     const options = [
-      `the insider wears a ${HAT[ins.look] ?? 'plain'} hat`,
+      `the insider wears ${HAT[ins.look] ?? 'a plain hat'}`,
       `the insider was just seen near ${near.name}`,
       `the insider has found ${r.found.get(r.insider) ?? 0} chest${(r.found.get(r.insider) ?? 0) === 1 ? '' : 's'} this round`,
     ].filter((c) => !mine.includes(c));

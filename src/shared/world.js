@@ -57,7 +57,7 @@ export const HUTS = [-44, -32, 32, 46, 58].map((dx, i) => {
   const x = dx;
   let z = 60;
   while (z < 200 && baseHeight(x, z) > 1.25) z += 0.5;
-  return { x, z: z - 3, rot: (i % 2 ? 0.08 : -0.06), color: ['#e85d75', '#4fa3e0', '#f2c14e', '#5fbf8f', '#b07fe0'][i] };
+  return { x, z: z - 3, rot: (i % 2 ? 0.08 : -0.06), color: ['#f0a3a3', '#9cc3e6', '#f3d38a', '#a9d3b4', '#c9b3e8'][i] };
 });
 
 export function height(x, z) {

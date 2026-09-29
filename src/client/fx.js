@@ -8,6 +8,21 @@
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt } from '../shared/world.js';
+import { uniform, uv, float, vec2, pow, abs, dot, normalView, positionViewDirection, time, mx_noise_float, smoothstep } from 'three/tsl';
+
+// a soft shaft of light: brightest through its core, fading upward and at the
+// edges, with slow streaks rising through it (additive, so it blooms)
+function beamMaterial(color) {
+  const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const strength = uniform(0);
+  const core = pow(abs(dot(normalView, positionViewDirection)), 2.5);
+  const fade = pow(float(1).sub(uv().y), 1.8).mul(smoothstep(0.0, 0.06, uv().y));
+  const streak = mx_noise_float(vec2(uv().x.mul(10), uv().y.mul(4).sub(time.mul(1.2)))).mul(0.45).add(0.75);
+  m.colorNode = uniform(color.clone()).mul(1.3);
+  m.opacityNode = strength.mul(core).mul(fade).mul(streak);
+  m.userData.strength = strength;
+  return m;
+}
 
 const BAR_COLORS = ['#5b8cff', '#5b8cff', '#4fc3ff', '#7dffa8', '#ffe066', '#ffcf3f'].map((c) => new THREE.Color(c));
 const RARITY = { common: new THREE.Color('#bfe3ff'), rare: new THREE.Color('#5b8cff'), legendary: new THREE.Color('#ffcf3f') };
@@ -108,7 +123,7 @@ export function makeFx(scene) {
     paint(new THREE.BoxGeometry(0.1, 0.12, 0.06).translate(0, 0.02, 0.47), '#ffcf3f'),
   ]);
   const chestMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
-  const beamGeo = new THREE.CylinderGeometry(0.16, 0.34, 1, 16, 1, true).translate(0, 0.5, 0);
+  const beamGeo = new THREE.CylinderGeometry(0.55, 0.3, 1, 24, 1, true).translate(0, 0.5, 0);
   const seamGeo = new THREE.BoxGeometry(0.76, 0.07, 0.52).translate(0, 0.4, 0);
   const OPEN = 1.3; // rise, then shake with light leaking out, then pop
   const reveals = [];
@@ -118,7 +133,7 @@ export function makeFx(scene) {
     const lidMesh = new THREE.Mesh(chestLid, chestMat);
     lidMesh.position.z = -0.23; lid.position.set(0, 0.4, 0.0); lid.add(lidMesh);
     body.castShadow = lidMesh.castShadow = true;
-    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicNodeMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    const beam = new THREE.Mesh(beamGeo, beamMaterial(RARITY[rarity] ?? RARITY.common));
     const seam = new THREE.Mesh(seamGeo, new THREE.MeshBasicNodeMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
     g.add(body, lid, beam, seam);
     const y0 = groundAt(x, z);
@@ -146,7 +161,7 @@ export function makeFx(scene) {
       }
       const tall = r.rarity === 'legendary' ? 14 : r.rarity === 'rare' ? 6 : 3;
       r.beam.scale.set(1, tall * Math.min(1, Math.max(0, (r.t - OPEN) * 2)), 1);
-      r.beam.material.opacity = r.t < OPEN ? 0 : Math.max(0, 0.32 - Math.max(0, r.t - OPEN - 0.7) * 0.14);
+      r.beam.material.userData.strength.value = r.t < OPEN ? 0 : Math.max(0, 0.55 - Math.max(0, r.t - OPEN - 0.7) * 0.4);
     }
     for (const r of reveals.filter((q) => q.t > OPEN + 3.4)) { scene.remove(r.g); r.beam.material.dispose(); r.seam.material.dispose(); }
     for (let i = reveals.length - 1; i >= 0; i--) if (reveals[i].t > OPEN + 3.4) reveals.splice(i, 1);

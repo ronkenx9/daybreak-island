@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Daybreak Island: launch teaser</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0d0b12; }
+      #main { position: relative; width: 100%; height: 100%; font-family: "Montserrat", sans-serif; }
+      #main > div { position: absolute; inset: 0; }
+      .fontwarm { position: absolute; opacity: 0; font-family: "Montserrat"; font-weight: 900; }
+      .fontwarm i { font-family: "Space Mono"; font-style: normal; }
+    </style>
+  </head>
+  <body>
+    <div id="main" data-composition-id="main" data-start="0" data-duration="50" data-width="1920" data-height="1080" data-fps="60">
+      <div id="s1-intro-host" data-composition-id="s1-intro" data-composition-src="compositions/s1-intro.html" data-start="0" data-duration="5" data-track-index="0" data-width="1920" data-height="1080"></div>
+      <div id="s2-title-host" data-composition-id="s2-title" data-composition-src="compositions/s2-title.html" data-start="5" data-duration="3" data-track-index="1" data-width="1920" data-height="1080"></div>
+      <div id="s3-roster-host" data-composition-id="s3-roster" data-composition-src="compositions/s3-roster.html" data-start="8" data-duration="5" data-track-index="0" data-width="1920" data-height="1080"></div>
+      <div id="s4-stats-host" data-composition-id="s4-stats" data-composition-src="compositions/s4-stats.html" data-start="13" data-duration="5" data-track-index="1" data-width="1920" data-height="1080"></div>
+      <div id="s5-beats-host" data-composition-id="s5-beats" data-composition-src="compositions/s5-beats.html" data-start="18" data-duration="20" data-track-index="0" data-width="1920" data-height="1080"></div>
+      <div id="s6-countdown-host" data-composition-id="s6-countdown" data-composition-src="compositions/s6-countdown.html" data-start="38" data-duration="5" data-track-index="1" data-width="1920" data-height="1080"></div>
+      <div id="s7-footage-host" data-composition-id="s7-footage" data-composition-src="compositions/s7-footage.html" data-start="43" data-duration="4" data-track-index="0" data-width="1920" data-height="1080"></div>
+      <div id="s8-end-host" data-composition-id="s8-end" data-composition-src="compositions/s8-end.html" data-start="47" data-duration="3" data-track-index="1" data-width="1920" data-height="1080"></div>
+      <audio id="soundtrack" src="assets/soundtrack.mp3" data-start="0" data-duration="50" data-track-index="5"></audio>
+      <div class="fontwarm" aria-hidden="true" data-layout-ignore>Aa <b style="font-weight:700">Aa</b> <i>Aa</i></div>
+    </div>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

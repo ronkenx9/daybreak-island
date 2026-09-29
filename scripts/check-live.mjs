@@ -1,6 +1,6 @@
 // G10: the public site works end to end in a real browser: page loads from
 // Vercel, connects to the VPS game server over wss, shows live characters
-// using the Blender chibi, and a human can join alongside the agents.
+// using the bean characters, and a human can join alongside the agents.
 //   node scripts/check-live.mjs [url] [screenshot.png]
 import puppeteer from 'puppeteer-core';
 
@@ -24,7 +24,7 @@ const s = await page.evaluate(() => {
   const players = [...d.players.values()];
   const me = players.find((p) => p.name === 'live-check');
   let chibi = false;
-  me?.ch.root.traverse((o) => { if (o.name === 'head') chibi = true; }); // bone names only exist on the Blender model
+  me?.ch.root.traverse((o) => { if (o.isBone && o.name === 'happy') chibi = true; }); // the bean's expression bone
   return { players: players.length, agents: players.filter((p) => p.kind === 'agent').length, me: !!me, chibi, board: document.querySelectorAll('#board li').length };
 });
 if (process.argv[3]) await page.screenshot({ path: process.argv[3] });

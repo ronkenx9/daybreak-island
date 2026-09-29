@@ -2,8 +2,7 @@ import * as THREE from 'three/webgpu';
 import { buildIsland } from './scene.js';
 import { makeRenderer } from './render.js';
 import { makeFx } from './fx.js';
-import { makeCharacter } from './character.js';
-import { loadChibi, makeChibi } from './chibi.js';
+import { makeBean, HEIGHT } from './bean.js';
 import { groundAt } from '../shared/world.js';
 import { CHAIN } from '../shared/chain.js';
 import { hasWallet, connect, signMessage, sendTx } from './wallet.js';
@@ -17,10 +16,7 @@ const { renderer, scene, camera } = view;
 const island = buildIsland(scene);
 view.onTier((tier) => island.grass.setDensity(tier.grass));
 const fx = makeFx(scene);
-// the Blender chibi; the code-built stand-in is only a fallback
-let chibi = 'loading';
-loadChibi().then(() => { chibi = 'ready'; }).catch((e) => { chibi = 'failed'; console.warn('chibi.glb failed, using stand-in', e); });
-const newCharacter = (look) => (chibi === 'ready' ? makeChibi(look) : makeCharacter(look));
+const newCharacter = (look) => makeBean(look);
 const ZOOM = Number(params.get('zoom') ?? 1);
 const PORTRAIT = params.has('portrait'); // debug: front close-up of the followed character
 
@@ -54,7 +50,6 @@ ws.addEventListener('message', (e) => {
 
 const bubblesEl = $('bubbles');
 function onSnap(s) {
-  if (chibi === 'loading') return; // wait for the model so nobody spawns as the stand-in
   snap = s;
   const seen = new Set();
   for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars, scanAge, dig] of s.players) {
@@ -162,13 +157,12 @@ function hud(s) {
     else if (e.kind === 'rumor') { div.className = 'rumor'; div.textContent = `Rumour: ${e.text}`; }
     else if (e.kind === 'vote') div.textContent = `${e.who} voted`;
     else if (e.kind === 'say') { if (s.insider?.phase === 'meeting') logMeeting(e.who, e.text); continue; }
-    else if (e.kind === 'join') div.textContent = `${e.who} arrived`;
     else if (e.kind === 'prize') { div.className = 'prize'; div.textContent = `${e.who} won ${e.amount} real $${e.ticker}!`; delay = 1350; }
     else continue;
     // chest news waits for the chest to finish shaking, so the feed doesn't spoil it
     setTimeout(() => {
       $('feed').appendChild(div);
-      while ($('feed').children.length > 5) $('feed').firstChild.remove();
+      while ($('feed').children.length > 3) $('feed').firstChild.remove();
       setTimeout(() => div.remove(), 9000);
     }, delay);
   }
@@ -196,9 +190,9 @@ let lastMove = '';
 
 // ---------------------------------------------------------------- free camera: drag to orbit, wheel/pinch to zoom, C to reset
 // yaw: which side of the player the camera sits on (0 = south of them, PI = north, looking south to the sunset)
-const CAM_DEFAULT = { yaw: Math.PI - 0.11, pitch: 0.41, dist: 11.5 };
+const CAM_DEFAULT = { yaw: Math.PI - 0.11, pitch: 0.3, dist: 9 };
 const cam = { ...CAM_DEFAULT };
-let lastDrag = -1e9; // after you drag the view, the follow camera waits a moment before swinging back
+let lastDrag = -1e9, digMix = 0; // after you drag the view, the follow camera waits a moment before swinging back
 let myHeading = null; // the way your character looks: A/D turn it, W walks along it
 function resetView() {
   Object.assign(cam, CAM_DEFAULT);
@@ -455,7 +449,7 @@ function frame() {
     p.ch.update(dt, p.anim, moving, p.emote, scanAge, p.bars ?? 0);
     fxPlayers.push({ id, x: p.cur.x, z: p.cur.z, h: p.cur.h, bars: p.bars ?? 0, scanAge, dig: p.dig ?? null });
     // name tags + speech bubbles
-    v.set(p.cur.x, p.cur.y + 3.1, p.cur.z).project(camera);
+    v.set(p.cur.x, p.cur.y + HEIGHT + 0.35, p.cur.z).project(camera);
     const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight, onScreen = v.z < 1;
     p.tag.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, 0)`;
     p.tag.hidden = !onScreen;
@@ -478,17 +472,26 @@ function frame() {
     if (focus === players.get(me) && myHeading !== null) { if (steer.fwd > 0 || steer.turn) behind(myHeading, steer.turn ? 6 : 2.5); }
     else if (watchId && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05) behind(focus.cur.h, 1.8);
   }
+  // dig cam: while the focused player digs, and through the chest reveal after, swing round to a
+  // three-quarter front view a little closer and higher, so the hole, shovel and chest are in shot
+  if (focus && focus.dig !== null && focus.dig !== undefined) focus.digSeen = now;
+  const digCam = !!focus && now - (focus.digSeen ?? -1e9) < 4600;
+  digMix += ((digCam ? 1 : 0) - digMix) * (1 - Math.exp(-dt * 3));
+  if (digCam && now - lastDrag > 1200) { let d = focus.cur.h + 1.15 - cam.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); cam.yaw += d * (1 - Math.exp(-dt * 2.5)); } // front-left three-quarter
   const circle = (ins.phase === 'meeting' || ins.phase === 'reveal') && ins.spot; // the circle stays together through the reveal
   if (circle && (!me || insPrivate?.role !== 'spectator')) {
     const r = 13, a = now / 9000; // a slow orbit around the circle
     camPos.lerp(v.set(ins.spot.x + Math.sin(a) * r * 0.8, groundAt(ins.spot.x, ins.spot.z) + 7, ins.spot.z + Math.cos(a) * r * 0.8), 1 - Math.exp(-dt * 2));
     camLook.lerp(v.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z), 1 - Math.exp(-dt * 3));
   } else if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
-    const r = cam.dist * ZOOM, flat = Math.cos(cam.pitch) * r;
-    camPos.lerp(v.set(fx1 + Math.sin(cam.yaw) * flat, fy + 1.2 + Math.sin(cam.pitch) * r, fz1 + Math.cos(cam.yaw) * flat), 1 - Math.exp(-dt * 8));
+    const r = cam.dist * ZOOM * (1 + 0.12 * digMix), pitch = cam.pitch + 0.3 * digMix, flat = Math.cos(pitch) * r;
+    camPos.lerp(v.set(fx1 + Math.sin(cam.yaw) * flat, fy + 1.2 + Math.sin(pitch) * r, fz1 + Math.cos(cam.yaw) * flat), 1 - Math.exp(-dt * 8));
     // look a little past the player (more when the camera is low) so the horizon stays in frame
     const ahead = 4 * (1 - cam.pitch / 1.35);
-    camLook.lerp(v.set(fx1 - Math.sin(cam.yaw) * ahead, fy + 1.4 + (1 - cam.pitch / 1.35) * 1.2, fz1 - Math.cos(cam.yaw) * ahead), 1 - Math.exp(-dt * 8));
+    // (the dig cam looks down at the dig spot instead of past the player)
+    const hx = fx0 + Math.sin(focus?.cur.h ?? 0) * 0.9, hz = fz0 + Math.cos(focus?.cur.h ?? 0) * 0.9;
+    const k = digMix;
+    camLook.lerp(v.set((fx1 - Math.sin(cam.yaw) * ahead) * (1 - k) + hx * k, (fy + 1.4 + (1 - cam.pitch / 1.35) * 1.2) * (1 - k) + (fy + 0.9) * k, (fz1 - Math.cos(cam.yaw) * ahead) * (1 - k) + hz * k), 1 - Math.exp(-dt * 8));
   }
   // never let the ground get between the camera and the player: lift over any hill on the way
   let lift = 0;
@@ -509,4 +512,4 @@ function frame() {
 }
 renderer.setAnimationLoop(frame);
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { cam, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, camDefault: CAM_DEFAULT, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };

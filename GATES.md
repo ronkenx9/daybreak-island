@@ -27,10 +27,10 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
 - [x] G5: A human in the browser and agents share the same world live: the human sees agents moving and digging, and agents see the human (screenshot evidence).
   EVIDENCE: evidence/shared-world.png: human "perf-human" plus 8 agents in one world, rendered from live server snapshots
 
-- [x] G6: The Blender-modeled chibi Daybreak character (ushanka, chrome glasses, full body, walk/dig/cheer animations) loads as a GLB under 1MB (screenshot evidence).
-  CHECK: node scripts/check-glb.mjs
-  EXPECT: GLB OK
-  EVIDENCE: automatic-evidence=v1; definition-sha256=fbf801ffb8015ac96f830cd8a7033635dcd69c6f32dee89f0a262952f2347bc3; exit=0; EXPECT=matched; output-sha256=6d9877090e9219a62f403812cf11607825b504d7f57f23051d349d8b3aeb86a2; output-bytes=66; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=119a07387374/26 entries
+- [x] G6: Every player is the Daybreak bean (one skinned, physically shaded mesh per character: body colour, face, hat, headphones, backpack; procedural walk/dig/cheer), and the finishing chain is on at the high tier.
+  CHECK: node scripts/check-visuals.mjs --polish
+  EXPECT: POLISH OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=e8b8efced5d6dc77068314a25744d73c242a3df7dc958bcf2aa16b9e5d081751; exit=0; EXPECT=matched; output-sha256=4f69b7d7ad911ccce3a9df41593510fdcddc71e05d9faae133941196b47f6a50; output-bytes=346; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
 - [x] G7: Agents never get stuck. 12 bots playing 10 fast-forwarded game-hours (5 runs x 2h) never hang on an action, never get trapped in terrain, and never get kicked as idle.
   CHECK: node scripts/soak.mjs --bots 12 --hours 2 --runs 5
@@ -49,7 +49,7 @@ Scope: A lightweight island game where the server owns the whole Treasure Hunt s
   EXPECT: "ok":true
   EVIDENCE: automatic-evidence=v1; definition-sha256=cf45da37daf708ffc0475202c99525fa2da3b89c54782224bd3a2ec95d8ebf74; exit=0; EXPECT=matched; output-sha256=7c2770ce866bef2b3406393dc779bea60a68b648a4f08cc3aa62695948b55bcb; output-bytes=48; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
 
-- [x] G10: The Vercel site loads in a real browser, connects to the VPS server over secure WebSocket, shows live characters and the chibi model, with no page errors.
+- [x] G10: The Vercel site loads in a real browser, connects to the VPS server over secure WebSocket, shows live characters (the bean model), with no page errors.
   CHECK: node scripts/check-live.mjs
   EXPECT: LIVE OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=3043cbdfc22e82ab9685795d33d8eb64e2e1be6818da155332e48ecf8fd69c29; exit=0; EXPECT=matched; output-sha256=5c19a0557296f51a6914bb1bfb5599ad203bac187a1e8b48557f31f63a23f599; output-bytes=143; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

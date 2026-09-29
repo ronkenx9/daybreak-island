@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>s7-footage</title></head>
+  <body>
+    <template>
+      <style>
+        #root { position: absolute; inset: 0; overflow: hidden; background: #0d0b12; font-family: "Montserrat", sans-serif; color: #f7f4ee; }
+        #root .full { position: absolute; inset: 0; }
+        #root canvas.dots { position: absolute; inset: 0; width: 100%; height: 100%; }
+        #root .mono { font-family: "Space Mono", monospace; }
+        #root svg.bean { position: absolute; overflow: visible; }
+#root .win { position: absolute; left: 200px; top: 140px; width: 1520px; height: 855px; border-radius: 30px; overflow: hidden; border: 4px solid #2e2938; }
+        #root .win video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+        #root .chip { position: absolute; left: 200px; top: 56px; font-size: 26px; color: #f7f4ee; display: flex; gap: 16px; align-items: center; }
+        #root .chip i { display: block; width: 16px; height: 16px; border-radius: 50%; background: #ff5a5a; }
+        #root .url { position: absolute; right: 200px; top: 56px; font-size: 26px; color: #ffcf3f; }
+      </style>
+      <div id="root" data-composition-id="s7-footage" data-width="1920" data-height="1080" data-duration="4">
+        <div class="win" id="s7-footage-win">
+          <video id="s7-footage-v1" src="assets/footage-beach.mp4" muted playsinline data-start="0" data-duration="1.7" data-track-index="1"></video>
+          <video id="s7-footage-v2" src="assets/footage-dig.mp4" muted playsinline data-start="1.7" data-duration="2.3" data-media-start="0.9" data-track-index="2"></video>
+        </div>
+        <div class="chip mono" id="s7-footage-chip"><i id="s7-footage-rec"></i>LIVE NOW · IN YOUR BROWSER</div>
+        <div class="url mono" id="s7-footage-url">daybreak-island.vercel.app</div>
+      </div>
+      <script>
+// Shared helpers inlined into every scene (deterministic, no clocks, no Math.random).
+//  HF.lcg(seed)                 seeded PRNG
+//  HF.bean(o)                   an agent as a flat circle with a face (and its hat): SVG string
+//  HF.eyes(type, ink)           just the eyes group (for swapping expressions)
+//  HF.dotText(canvas, text, o)  text sampled into dots (outline or fill); paint(mode, p)
+var HF = (function () {
+  function lcg(seed) {
+    var s = seed >>> 0;
+    return function () { s = (Math.imul(1664525, s) + 1013904223) >>> 0; return s / 4294967296; };
+  }
+  var INK = '#0d0b12';
+  function lum(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  }
+  // eyes live in a 100-unit circle centred on 0,0; one eye at (+-17, -6)
+  function eye(type, x, ink) {
+    var y = -6, s = 'stroke="' + ink + '" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" fill="none"';
+    switch (type) {
+      case 'o': return '<circle cx="' + x + '" cy="' + y + '" r="6.5" ' + s + '/>';
+      case 'dot': return '<circle cx="' + x + '" cy="' + y + '" r="6" fill="' + ink + '"/>';
+      case '^': return '<polyline points="' + (x - 7) + ',' + (y + 4) + ' ' + x + ',' + (y - 4) + ' ' + (x + 7) + ',' + (y + 4) + '" ' + s + '/>';
+      case 'u': return '<path d="M' + (x - 7) + ',' + (y - 2) + ' Q' + x + ',' + (y + 8) + ' ' + (x + 7) + ',' + (y - 2) + '" ' + s + '/>';
+      case '-': return '<line x1="' + (x - 7) + '" y1="' + y + '" x2="' + (x + 7) + '" y2="' + y + '" ' + s + '/>';
+      case '+': return '<g ' + s + '><line x1="' + (x - 7) + '" y1="' + y + '" x2="' + (x + 7) + '" y2="' + y + '"/><line x1="' + x + '" y1="' + (y - 7) + '" x2="' + x + '" y2="' + (y + 7) + '"/></g>';
+      case 'x': return '<g ' + s + '><line x1="' + (x - 6) + '" y1="' + (y - 6) + '" x2="' + (x + 6) + '" y2="' + (y + 6) + '"/><line x1="' + (x + 6) + '" y1="' + (y - 6) + '" x2="' + (x - 6) + '" y2="' + (y + 6) + '"/></g>';
+      case '*': return '<g ' + s + ' stroke-width="4.5"><line x1="' + x + '" y1="' + (y - 8) + '" x2="' + x + '" y2="' + (y + 8) + '"/><line x1="' + (x - 7) + '" y1="' + (y - 4) + '" x2="' + (x + 7) + '" y2="' + (y + 4) + '"/><line x1="' + (x + 7) + '" y1="' + (y - 4) + '" x2="' + (x - 7) + '" y2="' + (y + 4) + '"/></g>';
+      case '>': return '<polyline points="' + (x - 5) + ',' + (y - 7) + ' ' + (x + 5) + ',' + y + ' ' + (x - 5) + ',' + (y + 7) + '" ' + s + '/>';
+      case '<': return '<polyline points="' + (x + 5) + ',' + (y - 7) + ' ' + (x - 5) + ',' + y + ' ' + (x + 5) + ',' + (y + 7) + '" ' + s + '/>';
+      default: return '<text x="' + x + '" y="' + (y + 7) + '" text-anchor="middle" font-family="Montserrat" font-weight="900" font-size="21" fill="' + ink + '">' + type + '</text>';
+    }
+  }
+  function eyes(type, ink) {
+    var l = type === '><' ? '>' : type === '<>' ? '<' : type, r = type === '><' ? '<' : type === '<>' ? '>' : type;
+    return eye(l, -17, ink) + eye(r, 17, ink);
+  }
+  function hat(kind, c) {
+    switch (kind) {
+      case 'straw': return '<ellipse cx="0" cy="-40" rx="56" ry="10" fill="' + c + '"/><path d="M-26,-40 Q-24,-66 0,-66 Q24,-66 26,-40 Z" fill="' + c + '"/><rect x="-26" y="-47" width="52" height="7" fill="#ff7aa2"/>';
+      case 'beanie': return '<path d="M-40,-30 Q-40,-72 0,-72 Q40,-72 40,-30 Z" fill="' + c + '"/><rect x="-43" y="-36" width="86" height="12" rx="6" fill="' + c + '"/><circle cx="0" cy="-76" r="9" fill="' + c + '"/>';
+      case 'bucket': return '<path d="M-48,-34 L-30,-64 L30,-64 L48,-34 Z" fill="' + c + '"/><rect x="-30" y="-50" width="60" height="6" fill="' + INK + '" opacity="0.8"/>';
+      case 'cap': return '<path d="M-40,-32 Q-40,-72 0,-72 Q40,-72 40,-32 Z" fill="' + c + '"/><path d="M-6,-36 L58,-36 Q58,-28 44,-26 L-6,-26 Z" fill="' + c + '"/><circle cx="0" cy="-72" r="5" fill="#fff"/>';
+      case 'explorer': return '<ellipse cx="0" cy="-38" rx="54" ry="9" fill="' + c + '"/><path d="M-32,-38 Q-30,-72 0,-72 Q30,-72 32,-38 Z" fill="' + c + '"/><rect x="-31" y="-46" width="62" height="7" fill="#8b5cf6"/>';
+      default: return '';
+    }
+  }
+  // o: { color, eyes, hat, hatColor, blush, ink, extra, cls, id }
+  function bean(o) {
+    var ink = o.ink || (lum(o.color) < 0.3 ? '#f7f4ee' : INK);
+    return '<svg class="' + (o.cls || 'bean') + '"' + (o.id ? ' id="' + o.id + '"' : '') + ' viewBox="-60 -84 120 144" overflow="visible">' +
+      '<circle cx="0" cy="0" r="48" fill="' + o.color + '"/>' +
+      (o.blush ? '<ellipse cx="-27" cy="12" rx="8" ry="4.5" fill="#ff8a9a" opacity="0.85"/><ellipse cx="27" cy="12" rx="8" ry="4.5" fill="#ff8a9a" opacity="0.85"/>' : '') +
+      '<g class="eyes">' + eyes(o.eyes || 'o', ink) + '</g>' +
+      (o.eyes2 ? '<g class="eyes2" opacity="0">' + eyes(o.eyes2, ink) + '</g>' : '') +
+      (o.hat ? hat(o.hat, o.hatColor) : '') + (o.extra || '') + '</svg>';
+  }
+
+  // Text -> dots. Samples the glyph OUTLINE (or the fill) of the text rastered at
+  // `font`, centred at (x, y), on a grid. The table is built once; paint() is a pure
+  // function of (mode, p): 'in' flies dots from a scattered cloud onto the glyphs,
+  // 'hold' draws them in place, 'out' blows them away. The front sweeps left->right.
+  function dotText(canvas, text, o) {
+    var w = canvas.width, h = canvas.height, ctx = canvas.getContext('2d');
+    var off = document.createElement('canvas'); off.width = w; off.height = h;
+    var oc = off.getContext('2d', { willReadFrequently: true });
+    oc.font = o.font; oc.textAlign = o.align || 'center'; oc.textBaseline = 'middle'; oc.fillStyle = '#fff';
+    oc.fillText(text, o.x, o.y);
+    var d = oc.getImageData(0, 0, w, h).data, step = o.step || 4, band = o.band || 3, pts = [], rnd = lcg(o.seed || 7);
+    var lit = function (x, y) { return x >= 0 && y >= 0 && x < w && y < h && d[(y * w + x) * 4 + 3] > 127; };
+    var minX = 1e9, maxX = -1e9;
+    for (var y = 0; y < h; y += step) for (var x = 0; x < w; x += step) {
+      if (!lit(x, y)) continue;
+      if (o.outline && lit(x - band, y) && lit(x + band, y) && lit(x, y - band) && lit(x, y + band)) continue;
+      var a = rnd() * Math.PI * 2;
+      pts.push({ x: x, y: y, ox: Math.cos(a), oy: Math.sin(a), dist: (0.06 + 0.16 * rnd()) * w, r: (o.r || 1.6) * (0.75 + 0.5 * rnd()), j: rnd() });
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+    }
+    var span = Math.max(1, maxX - minX);
+    for (var i = 0; i < pts.length; i++) pts[i].k = (pts[i].x - minX) / span;
+    var color = o.color || '#ff7a2e';
+    return {
+      count: pts.length,
+      paint: function (mode, p, alpha) {
+        ctx.fillStyle = color;
+        for (var i = 0; i < pts.length; i++) {
+          var q = pts[i], u, dx = 0, dy = 0, a = alpha === undefined ? 1 : alpha;
+          if (mode === 'in') {
+            u = Math.min(1, Math.max(0, (p - q.k * 0.45 - q.j * 0.1) / 0.45));
+            if (u <= 0) continue;
+            var e = 1 - Math.pow(1 - u, 3);
+            dx = q.ox * q.dist * (1 - e); dy = q.oy * q.dist * (1 - e); a *= Math.min(1, u * 3);
+          } else if (mode === 'out') {
+            u = Math.min(1, Math.max(0, (p - q.k * 0.45 - q.j * 0.1) / 0.45));
+            dx = q.ox * q.dist * u * u * 1.4 + u * u * 120; dy = q.oy * q.dist * u * u; a *= 1 - u;
+            if (a <= 0.01) continue;
+          }
+          ctx.globalAlpha = a;
+          ctx.beginPath(); ctx.arc(q.x + dx, q.y + dy, q.r, 0, 6.2832); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      },
+    };
+  }
+  return { lcg: lcg, bean: bean, eyes: eyes, dotText: dotText, INK: INK };
+})();
+
+      (function () {
+        var $ = function (s) { return document.getElementById('s7-footage-' + s); };
+        var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll('[data-composition-id="s7-footage"] ' + s)); };
+        var tl = gsap.timeline({ paused: true });
+        function build() {
+
+          tl.fromTo($('win'), { scale: 0.55, borderRadius: 120, y: 40 }, { scale: 1, borderRadius: 30, y: 0, duration: 0.6, ease: 'expo.out' }, 0);
+          tl.fromTo($('chip'), { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.4 }, 0.3);
+          tl.fromTo($('url'), { opacity: 0, x: 20 }, { opacity: 1, x: 0, duration: 0.4 }, 0.4);
+          tl.fromTo($('rec'), { opacity: 1 }, { opacity: 0.2, duration: 0.4, yoyo: true, repeat: 8 }, 0.4);
+          window.__timelines["s7-footage"] = tl;
+          if (window.__hfForceTimelineRebind) window.__hfForceTimelineRebind();
+        }
+        Promise.all([document.fonts.load('900 120px Montserrat'), document.fonts.load('700 60px Montserrat'), document.fonts.load('400 30px "Space Mono"')]).then(build, build);
+      })();
+      </script>
+    </template>
+  </body>
+</html>

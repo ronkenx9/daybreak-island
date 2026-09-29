@@ -8,3 +8,9 @@ contracts/cache
 contracts/broadcast
 data
 montage/renders
+promo/renders
+promo/assets/*.wav
+promo/snapshots
+montage/snapshots
+evidence/beauty/*.png
+promo/assets/footage-*.mp4
