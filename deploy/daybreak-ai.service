@@ -1,0 +1,24 @@
+[Unit]
+Description=Daybreak Island AI citizens (LLM agents that play and run the island council)
+After=daybreak-island.service
+Requires=daybreak-island.service
+
+[Service]
+User=daybreak
+WorkingDirectory=/opt/daybreak-island
+# BANKR_LLM_KEY and AGENT_BAG_SECRET (root-owned, not in the repo)
+EnvironmentFile=/etc/daybreak-ai.env
+# a hard daily spending cap; every council decision goes to the model, 15% of everyday play does
+ExecStart=/usr/bin/node scripts/ai-agents.mjs --url http://127.0.0.1:5180 --agents 6 --minutes 100000000 --budget 3 --daily --play-rate 0.15 --spend /var/lib/daybreak-island/ai-spend.json --journal /var/lib/daybreak-island/journal.jsonl --quiet
+Restart=always
+RestartSec=10
+MemoryMax=250M
+CPUQuota=30%
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/daybreak-island
+
+[Install]
+WantedBy=multi-user.target
