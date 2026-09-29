@@ -335,7 +335,7 @@ Reply with ONE JSON object only, no prose.`;
     return { d: parseJson(text), msgs, text };
   }
   async councilPitch(v) {
-    const task = `It is the PITCH phase. Pitch ONE change (you pay the pitch fee from your bag). Don't duplicate existing buildings or current pitches; pick coordinates from report.suggestedSites; keep the cost within reach of the treasury plus a few pledges. If you can't afford the fee, pitch a free "idea" instead.
+    const task = `It is the PITCH phase. Pitch ONE change (you pay the pitch fee from your bag). Don't duplicate existing buildings or current pitches; pick coordinates from report.suggestedSites; keep the cost within reach of the treasury plus a few pledges. Use kind "idea" ONLY for things the catalogue, rules, listings and events can't express (a new mechanic or a new kind of place); an idea never gets built by the council, it goes on a wishlist for the game's makers.
 Shape: {"kind": "build"|"upgrade"|"demolish"|"rule"|"listing"|"event"|"idea", ...fields, "pitch": "<why, max 200 chars, in character>", "say": "<short public line announcing it, max 90 chars>"}
 Fields: build {"type","x","z","name"?, "honoree"? (statue), "x2","z2" (road)}; upgrade/demolish {"target": building id}; rule {"rule","value"}; listing {"ticker","name","price"}; event {"event","x"?,"z"?}; idea {"text"}.`;
     let { d, msgs, text } = await this.councilAsk(task, v, 360);
@@ -400,6 +400,8 @@ Shape: {"votes": [{"id": "<pitch id>", "vote": "yes"|"no"}], "pledge": {"id": "<
   async councilStep({ s }) {
     const c = s.council;
     if (!c) return null;
+    // can't afford a pitch yet: go dig (chests pay), and back other people's pitches in the vote
+    if (c.phase === 'propose' && this.council.pitched !== c.epoch && (s.portfolio?.value ?? 0) < 20) { this.council.pitched = c.epoch; this.note('pitch', 'skipped pitching: not enough in the bag yet', { ok: false }); }
     const ai = !this.fallbackOnly && this.llm;
     try {
       if (c.phase === 'propose' && this.council.pitched !== c.epoch && c.secondsLeft > 5 && Math.random() < 0.5) {
