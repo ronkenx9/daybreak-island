@@ -2,10 +2,16 @@
 // per kind), but dense: a GPU grass field that follows the camera, forest
 // clumps, bushes, ferns, rocks, flowers and crystals, patchy ground colour,
 // shoreline foam, and real sun shadows (see render.js).
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import {
+  Fn, attribute, uniform, uniformArray, vec2, vec3, vec4, float, ivec2, floor, fract, sin, cos, mix, smoothstep, step, clamp, textureLoad,
+  positionLocal, positionWorld, cameraPosition, normalize, reflect, dot, max, pow, distance, Loop, select, vertexStage, instanceIndex, hash,
+  mx_noise_float, cameraViewMatrix, abs, screenCoordinate, frameId,
+} from 'three/tsl';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { height, SIZE, MESAS, pathDist } from '../shared/world.js';
 import { makeNoise } from '../shared/noise.js';
+import { SUN_DIR } from './render.js';
 
 const N = makeNoise(99);
 let seed = 7;
@@ -18,7 +24,7 @@ export const toonRamp = (() => {
   t.needsUpdate = true;
   return t;
 })();
-export const toon = (opts) => new THREE.MeshToonMaterial({ gradientMap: toonRamp, ...opts });
+export const toon = (opts) => new THREE.MeshToonNodeMaterial({ gradientMap: toonRamp, ...opts });
 
 const C = (h) => new THREE.Color(h);
 const PAL = {
@@ -43,24 +49,33 @@ function terrainData() {
   const t = new THREE.DataTexture(data, TEX, TEX, THREE.RGBAFormat, THREE.FloatType);
   t.minFilter = t.magFilter = THREE.NearestFilter;
   t.needsUpdate = true;
+  terrainTexture = t;
   return t;
 }
 // big light/dark patches, same function for ground and grass so they match
 const tone = (x, z) => THREE.MathUtils.clamp(N.fbm(x * 0.035, z * 0.035, 3) * 0.9 + 0.5, 0, 1);
-const SAMPLE_GLSL = `
-  uniform sampler2D uTerrain;
-  vec4 terrainAt(vec2 w) {
-    vec2 uv = (w / ${SIZE.toFixed(1)} + 0.5) * ${TEX.toFixed(1)} - 0.5;
-    vec2 i = floor(uv), f = fract(uv);
-    ivec2 a = ivec2(clamp(i, 0.0, ${(TEX - 1).toFixed(1)})), b = ivec2(clamp(i + 1.0, 0.0, ${(TEX - 1).toFixed(1)}));
-    vec4 p = texelFetch(uTerrain, a, 0), q = texelFetch(uTerrain, ivec2(b.x, a.y), 0);
-    vec4 r = texelFetch(uTerrain, ivec2(a.x, b.y), 0), s = texelFetch(uTerrain, b, 0);
-    return mix(mix(p, q, f.x), mix(r, s, f.x), f.y);
-  }`;
-const HASH_GLSL = `
-  float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-    return mix(mix(hash2(i), hash2(i+vec2(1,0)), f.x), mix(hash2(i+vec2(0,1)), hash2(i+vec2(1,1)), f.x), f.y); }`;
+// shared shader helpers (TSL: compiles to WGSL on WebGPU, GLSL on the WebGL2 fallback)
+const uTime = uniform(0);
+const uSun = uniform(SUN_DIR);
+let terrainTexture = null;
+// bilinear read of the terrain texture at a world xz
+const terrainAt = Fn(([w]) => {
+  const uv = w.div(SIZE).add(0.5).mul(TEX).sub(0.5);
+  const i = floor(uv), f = fract(uv);
+  const a = ivec2(clamp(i, 0, TEX - 1)), b = ivec2(clamp(i.add(1), 0, TEX - 1));
+  const p = textureLoad(terrainTexture, a), q = textureLoad(terrainTexture, ivec2(b.x, a.y));
+  const r = textureLoad(terrainTexture, ivec2(a.x, b.y)), t = textureLoad(terrainTexture, b);
+  return mix(mix(p, q, f.x), mix(r, t, f.x), f.y);
+});
+// sun glitter off a rippling surface (HDR, so it blooms)
+const glitter = Fn(([p, strength, scale]) => {
+  const n1 = mx_noise_float(vec3(p.x.mul(scale), p.y.mul(scale), uTime.mul(0.9)));
+  const n2 = mx_noise_float(vec3(p.y.mul(scale).add(17), p.x.mul(scale), uTime.mul(0.7)));
+  const n = normalize(vec3(n1.mul(strength), 1, n2.mul(strength)));
+  const view = normalize(cameraPosition.sub(positionWorld));
+  const r = reflect(view.negate(), n);
+  return pow(max(dot(r, uSun), 0), 220).mul(9);
+});
 
 function terrain() {
   const seg = 220;
@@ -82,50 +97,92 @@ function terrain() {
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  // fine speckle and rock striations so the ground doesn't read as a flat sheet
-  mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWp; varying float vUp;')
-      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz; vUp = normal.y;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\nvarying vec3 vWp; varying float vUp;${HASH_GLSL}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        float sp = vnoise(vWp.xz * 2.3) * 0.6 + vnoise(vWp.xz * 7.0) * 0.4;
-        diffuseColor.rgb *= 0.9 + sp * 0.18;
-        if (vUp < 0.72) diffuseColor.rgb *= 0.85 + 0.3 * vnoise(vec2(vWp.y * 3.0, (vWp.x + vWp.z) * 0.4));`);
-  };
+  const mat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
+  // fine speckle and rock striations so the ground isn't a flat sheet; the tide line is wet and sparkles
+  const h = positionWorld.y;
+  const speck = mx_noise_float(positionWorld.xz.mul(2.3)).mul(0.5).add(0.5).mul(0.6).add(mx_noise_float(positionWorld.xz.mul(7)).mul(0.5).add(0.5).mul(0.4));
+  const wet = smoothstep(1.0, 0.55, h).mul(smoothstep(0.1, 0.3, h));
+  mat.colorNode = vec3(float(0.9).add(speck.mul(0.18)).mul(mix(float(1), float(0.62), wet)));
+  mat.emissiveNode = vec3(1.0, 0.8, 0.6).mul(glitter(positionWorld.xz, 0.5, 3.0)).mul(wet);
   const m = new THREE.Mesh(geo, mat);
   m.receiveShadow = true;
   return m;
 }
 
-function water(terrainTex) {
-  const mat = new THREE.ShaderMaterial({
-    transparent: true,
-    uniforms: { uTime: { value: 0 }, uTerrain: { value: terrainTex } },
-    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-    fragmentShader: `uniform float uTime; varying vec3 vW;${SAMPLE_GLSL}${HASH_GLSL}
-      void main(){
-        float ground = abs(vW.x) < ${(SIZE / 2).toFixed(1)} && abs(vW.z) < ${(SIZE / 2).toFixed(1)} ? terrainAt(vW.xz).r : -8.0;
-        float depth = clamp((0.25 - ground) / 2.5, 0.0, 1.0);
-        vec3 c = mix(vec3(0.25, 0.80, 0.88), vec3(0.05, 0.40, 0.80), smoothstep(0.0, 0.6, depth));
-        // foam: a bright rim at the shore plus waves rolling in
-        float rim = smoothstep(0.035, 0.0, depth);
-        float wave = smoothstep(0.8, 1.0, sin(depth * 45.0 - uTime * 2.2 + vnoise(vW.xz * 0.3) * 4.0)) * smoothstep(0.18, 0.02, depth);
-        float speck = step(0.93, vnoise(vW.xz * 1.6 + vec2(uTime * 0.4, uTime * 0.2))) * 0.25 * (1.0 - depth);
-        c = mix(c, vec3(1.0), clamp(rim * 0.85 + wave * 0.6 + speck, 0.0, 1.0));
-        gl_FragColor = vec4(c, 0.93);
-      }`,
-  });
+function water() {
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true });
+  mat.colorNode = Fn(() => {
+    const inside = step(abs(positionWorld.x), SIZE / 2).mul(step(abs(positionWorld.z), SIZE / 2));
+    const ground = mix(float(-8), terrainAt(positionWorld.xz).x, inside);
+    const depth = clamp(float(0.25).sub(ground).div(2.5), 0, 1);
+    const base = mix(vec3(0.20, 0.62, 0.66), vec3(0.06, 0.24, 0.42), smoothstep(0.0, 0.6, depth));
+    // at a low sun the sea mirrors the sky: more pink-gold toward the horizon
+    const view = normalize(cameraPosition.sub(positionWorld));
+    const fres = pow(float(1).sub(max(view.y, 0)), 3);
+    const col = mix(base, vec3(1.0, 0.66, 0.55), fres.mul(0.75)).toVar();
+    const rim = smoothstep(0.035, 0.0, depth);
+    const wave = smoothstep(0.8, 1.0, sin(depth.mul(45).sub(uTime.mul(2.2)).add(mx_noise_float(positionWorld.xz.mul(0.3)).mul(4)))).mul(smoothstep(0.18, 0.02, depth));
+    col.assign(mix(col, vec3(1.0, 0.93, 0.88), clamp(rim.mul(0.8).add(wave.mul(0.55)), 0, 1)));
+    col.addAssign(vec3(1.0, 0.85, 0.65).mul(glitter(positionWorld.xz, 0.45, 1.6)));
+    return col;
+  })();
+  mat.opacityNode = float(0.94);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(900, 900).rotateX(-Math.PI / 2), mat);
   m.position.y = 0.25;
   return m;
+}
+
+// puffy lavender clouds sitting on the horizon
+function clouds() {
+  const blobs = [];
+  for (let k = 0; k < 7; k++) blobs.push(lumpy(new THREE.IcosahedronGeometry(1, 2), 0.1, k + 60).scale(1 + (k % 3) * 0.3, 0.8, 1).translate((k - 3) * 1.25, (k % 2) * 0.55 + (k === 3) * 0.6, (k % 3) * 0.3));
+  const geo = mergeGeometries(blobs.map((g) => { g.deleteAttribute('uv'); return g; }));
+  const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
+  // soft shading: plum underside, pink-lit top, brighter toward the sun
+  mat.colorNode = Fn(() => {
+    const up = positionLocal.y.add(1).div(2.6);
+    const c = mix(vec3(0.40, 0.33, 0.66), vec3(0.95, 0.78, 0.92), smoothstep(0.15, 1.0, up));
+    const toSun = max(dot(normalize(positionWorld.sub(cameraPosition)), uSun), 0);
+    return c.add(vec3(1.0, 0.72, 0.5).mul(pow(toSun, 12).mul(0.25)));
+  })();
+  const spots = [];
+  for (let i = 0; i < 11; i++) {
+    const a = Math.PI / 2 + (i / 11 - 0.5) * 2.4 + (rnd() - 0.5) * 0.2; // spread across the view, toward the sun
+    const r = 230 + rnd() * 50;
+    spots.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, y: 34 + rnd() * 40, s: 4 + rnd() * 3.5 });
+  }
+  return instanced(geo, mat, spots, (d, s) => { d.position.set(s.x, s.y, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.set(s.s * 1.4, s.s, s.s); });
+}
+
+// glowing motes drifting in the sunlight around the player
+function motes() {
+  const geo = new THREE.InstancedBufferGeometry().copy(new THREE.OctahedronGeometry(0.035, 0));
+  const n = 170, inst = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { inst[i * 3] = (rnd() - 0.5) * 40; inst[i * 3 + 1] = (rnd() - 0.5) * 40; inst[i * 3 + 2] = rnd(); }
+  geo.setAttribute('aMote', new THREE.InstancedBufferAttribute(inst, 3));
+  geo.instanceCount = n;
+  const uFocus = uniform(new THREE.Vector2());
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const m = attribute('aMote', 'vec3');
+  mat.positionNode = Fn(() => {
+    const wp = m.xy.add(float(40).mul(floor(uFocus.sub(m.xy).div(40).add(0.5))));
+    const t = uTime.mul(0.25).add(m.z.mul(40));
+    const drift = vec3(sin(t.mul(1.3)).mul(0.9), sin(t.mul(0.9).add(1.7)).mul(0.5), cos(t.mul(1.1)).mul(0.9));
+    const ground = terrainAt(wp).x;
+    return positionLocal.mul(0.8).add(vec3(wp.x, ground.add(m.z.mul(3.2)).add(0.4), wp.y)).add(drift);
+  })();
+  const twinkle = sin(uTime.mul(2.3).add(m.z.mul(60))).mul(0.5).add(0.5);
+  mat.colorNode = vec3(2.2, 1.5, 0.8).mul(twinkle.mul(0.8).add(0.2));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  return { mesh, uFocus };
 }
 
 // ---------------------------------------------------------------- grass field (GPU)
 // One draw call: blades live in a square patch that wraps around the focus
 // point, get their height and colour from the terrain texture, and sway.
 const PATCH = 60;
-function grassField(terrainTex) {
+function grassField() {
   const blade = new THREE.BufferGeometry();
   // tapered, slightly bent blade: 2 segments + tip
   const w = 0.055;
@@ -138,64 +195,61 @@ function grassField(terrainTex) {
   for (let i = 0; i < MAX; i++) { inst[i * 3] = (rnd() - 0.5) * PATCH; inst[i * 3 + 1] = (rnd() - 0.5) * PATCH; inst[i * 3 + 2] = rnd(); }
   geo.setAttribute('aBlade', new THREE.InstancedBufferAttribute(inst, 3));
   geo.instanceCount = MAX;
-  // same palette as the ground (Color converts the sRGB hex to linear for the shader)
-  const uniforms = { uTerrain: { value: terrainTex }, uFocus: { value: new THREE.Vector2() }, uTime: { value: 0 },
-    uHoles: { value: Array.from({ length: 24 }, () => new THREE.Vector3(0, 0, 0)) }, // dug holes clear the grass: x, z, radius
-    uDarkG: { value: PAL.grassDark.clone().multiplyScalar(1.05) }, uMidG: { value: PAL.grass.clone().multiplyScalar(1.08) }, uLightG: { value: PAL.grassLight.clone() } };
-  const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
-  mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, uniforms);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-        attribute vec3 aBlade; uniform vec2 uFocus; uniform float uTime; uniform vec3 uHoles[24]; varying float vH; varying float vTone; varying float vRand;${SAMPLE_GLSL}`)
-      .replace('#include <begin_vertex>', `
-        vec2 wp = aBlade.xy + ${PATCH.toFixed(1)} * floor((uFocus - aBlade.xy) / ${PATCH.toFixed(1)} + 0.5);
-        vec4 T = terrainAt(wp);
-        float edge = 1.0 - smoothstep(${(PATCH * 0.34).toFixed(1)}, ${(PATCH * 0.5).toFixed(1)}, length(wp - uFocus));
-        float r = aBlade.z;
-        float s = step(fract(r * 91.7), T.g) * edge * (0.6 + r * 0.7);
-        for (int k = 0; k < 24; k++) { vec3 hl = uHoles[k]; if (hl.z > 0.0) s *= smoothstep(hl.z * 0.75, hl.z * 1.15, distance(wp, hl.xy)); }
-        float a = r * 43.0;
-        vec3 p = position;
-        p.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * p.xz;
-        float wind = sin(uTime * 1.8 + wp.x * 0.22 + wp.y * 0.17) * 0.6 + sin(uTime * 3.1 + wp.x * 0.7 + r * 6.0) * 0.25;
-        p.x += wind * 0.16 * position.y * position.y;
-        vec3 transformed = vec3(wp.x, T.r - 0.02, wp.y) + p * vec3(s * 1.25, s * (0.2 + T.b * 0.16), s * 1.25);
-        vH = position.y; vTone = T.b; vRand = r;`)
-      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = vec3(0.0, 1.0, 0.0);');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vH; varying float vTone; varying float vRand; uniform vec3 uDarkG, uMidG, uLightG;')
-      // both sides of a blade are lit like the ground (no dark back faces)
-      .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);')
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        vec3 tip = mix(uDarkG, uMidG, smoothstep(0.15, 0.55, vTone));
-        tip = mix(tip, uLightG, smoothstep(0.6, 0.95, vTone));
-        vec3 dark = tip * 0.62, mid = tip * 1.1;
-        diffuseColor.rgb = mix(dark, mid, smoothstep(0.0, 0.9, vH)) * (0.9 + vRand * 0.2);`);
-  };
-  const mesh = new THREE.Mesh(geo, mat);
+  const uFocus = uniform(new THREE.Vector2());
+  const holes = Array.from({ length: 24 }, () => new THREE.Vector3()); // dug holes clear the grass: x, z, radius
+  const uHoles = uniformArray(holes, 'vec3');
+  const b = attribute('aBlade', 'vec3');
+  const wp = b.xy.add(float(PATCH).mul(floor(uFocus.sub(b.xy).div(PATCH).add(0.5))));
+  const T = terrainAt(wp);
+  const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide });
+  mat.positionNode = Fn(() => {
+    const edge = float(1).sub(smoothstep(PATCH * 0.34, PATCH * 0.5, distance(wp, uFocus)));
+    const r = b.z;
+    const s = step(fract(r.mul(91.7)), T.y).mul(edge).mul(r.mul(0.7).add(0.6)).toVar();
+    Loop(24, ({ i }) => {
+      const hl = uHoles.element(i);
+      s.mulAssign(select(hl.z.greaterThan(0), smoothstep(hl.z.mul(0.75), hl.z.mul(1.15), distance(wp, hl.xy)), float(1)));
+    });
+    const a = r.mul(43);
+    const p = positionLocal;
+    const rx = p.x.mul(cos(a)).sub(p.z.mul(sin(a))), rz = p.x.mul(sin(a)).add(p.z.mul(cos(a)));
+    const wind = sin(uTime.mul(1.8).add(wp.x.mul(0.22)).add(wp.y.mul(0.17))).mul(0.6).add(sin(uTime.mul(3.1).add(wp.x.mul(0.7)).add(r.mul(6))).mul(0.25));
+    const bend = wind.mul(0.16).mul(p.y).mul(p.y);
+    return vec3(wp.x, T.x.sub(0.02), wp.y).add(vec3(rx.add(bend), p.y, rz).mul(vec3(s.mul(1.25), s.mul(T.z.mul(0.16).add(0.2)), s.mul(1.25))));
+  })();
+  // both sides lit like the ground (no dark back faces)
+  mat.normalNode = normalize(cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz);
+  // same palette as the ground, darker at the root
+  const tone = vertexStage(T.z), rr = vertexStage(b.z), hgt = vertexStage(positionLocal.y);
+  const cDark = uniform(PAL.grassDark.clone().multiplyScalar(1.05)), cMid = uniform(PAL.grass.clone().multiplyScalar(1.08)), cLight = uniform(PAL.grassLight.clone());
+  const tip = mix(mix(cDark, cMid, smoothstep(0.15, 0.55, tone)), cLight, smoothstep(0.6, 0.95, tone));
+  mat.colorNode = mix(tip.mul(0.62), tip.mul(1.1), smoothstep(0.0, 0.9, hgt)).mul(rr.mul(0.2).add(0.9));
+  const dbg = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('debug') : null;
+  if (dbg === 'grass-unlit') { const m2 = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }); m2.positionNode = mat.positionNode; m2.colorNode = mat.colorNode; mat.dispose(); Object.assign(mat, {}); geo.userData.dbgMat = m2; }
+  if (dbg === 'grass-noshadow') mat.userData.noShadow = true;
+  const mesh = new THREE.Mesh(geo, geo.userData.dbgMat ?? mat);
   mesh.frustumCulled = false;
-  mesh.receiveShadow = true;
-  const holes = uniforms.uHoles.value;
+  mesh.receiveShadow = dbg !== 'grass-noshadow';
   return {
-    mesh, uniforms, setDensity: (f) => { geo.instanceCount = Math.floor(MAX * f); },
+    mesh, uFocus, parts: { tone, rr, hgt, tip, T, b, wp }, setDensity: (f) => { geo.instanceCount = Math.floor(MAX * f); },
     /** holes near the camera: [{ x, z, r }] */
     setHoles(list) { for (let k = 0; k < holes.length; k++) { const h = list[k]; holes[k].set(h ? h.x : 0, h ? h.z : 0, h ? h.r : 0); } },
   };
 }
 
+// Foliage close to the camera dissolves (screen-door dither) so it never blocks the view
+function seeThrough(mat, near = 3.5, far = 8) {
+  const d = distance(positionWorld, cameraPosition);
+  // changes every frame, so temporal anti-aliasing averages it into smooth transparency
+  const dither = hash(screenCoordinate.x.add(screenCoordinate.y.mul(4096)).add(float(frameId).mod(64).mul(7919)));
+  mat.alphaTest = 0.5;
+  mat.opacityNode = step(dither, smoothstep(near, far, d)); // keep a pixel when it is farther than its dither threshold
+}
+
 // Wind sway for instanced foliage (vertex only)
 function windy(mat, amount) {
-  const uTime = { value: 0 };
-  const prev = mat.onBeforeCompile;
-  mat.onBeforeCompile = (sh, r) => {
-    prev?.call(mat, sh, r);
-    sh.uniforms.uTime = uTime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vec3 ip = instanceMatrix[3].xyz;
-        float s = sin(uTime * 1.4 + ip.x * 0.35 + ip.z * 0.25);
-        transformed.x += s * ${amount.toFixed(3)} * max(position.y, 0.0);`);
-  };
-  return uTime;
+  const phase = hash(instanceIndex).mul(6.28);
+  mat.positionNode = positionLocal.add(vec3(sin(uTime.mul(1.4).add(phase)).mul(amount).mul(max(positionLocal.y, 0)), 0, 0));
 }
 
 // vertex-coloured, merged geometry from parts [geometry, colour, darkenBottom]
@@ -260,28 +314,33 @@ function forests() {
     lumps.push([lumpy(new THREE.IcosahedronGeometry(k === 0 ? 1.25 : 0.95 - (k % 2) * 0.12, 1), 0.14, k).translate(Math.cos(a) * rr, y, Math.sin(a) * rr), '#ffffff', 0.55]);
   }
   const crownGeo = baked(lumps);
-  const crownMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const uTime = windy(crownMat, 0.025);
+  const crownMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
+  windy(crownMat, 0.025);
+  seeThrough(crownMat, 4, 10);
   const trunkGeo = baked([[new THREE.CylinderGeometry(0.16, 0.28, 2.4, 6).translate(0, 1.2, 0), '#6b4a33', 0.3]]);
   const greens = ['#3d7d3f', '#4a8c44', '#34703a', '#5a9a47', '#2f6636'].map(C), autumn = ['#d99a4a', '#c9853c', '#e0b25a'].map(C);
   const scale = (s) => 0.7 + (N.noise(s.x * 0.3, s.z * 0.3) * 0.5 + 0.5) * 0.7;
   const crowns = instanced(crownGeo, crownMat, spots, (d, s) => { d.position.set(s.x, s.h - 0.15, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(scale(s)); });
-  const trunks = instanced(trunkGeo, new THREE.MeshLambertMaterial({ vertexColors: true }), spots, (d, s) => { d.position.set(s.x, s.h - 0.15, s.z); d.scale.setScalar(scale(s)); });
+  const trunkMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
+  seeThrough(trunkMat, 4, 10);
+  const trunks = instanced(trunkGeo, trunkMat, spots, (d, s) => { d.position.set(s.x, s.h - 0.15, s.z); d.scale.setScalar(scale(s)); });
   spots.forEach((s, i) => crowns.setColorAt(i, (N.noise(s.x * 0.05 + 9, s.z * 0.05) > 0.45 ? autumn : greens)[i % (N.noise(s.x * 0.05 + 9, s.z * 0.05) > 0.45 ? 3 : 5)]));
   for (const m of [crowns, trunks]) { m.castShadow = true; m.receiveShadow = true; }
-  return { meshes: [crowns, trunks], uTime, spots };
+  return { meshes: [crowns, trunks], spots };
 }
 
 // ---------------------------------------------------------------- small props
 function props(treeSpots) {
   const near = (x, z, r) => treeSpots.some((t) => Math.abs(t.x - x) < r && Math.abs(t.z - z) < r);
   const meshes = [];
-  const lambert = () => new THREE.MeshLambertMaterial({ vertexColors: true });
+  const lambert = () => new THREE.MeshLambertNodeMaterial({ vertexColors: true });
 
   // bushes: low lumpy clumps, often at forest edges
   const bushGeo = baked([0, 1, 2, 3].map((k) => [lumpy(new THREE.IcosahedronGeometry(0.55 - k * 0.06, 1), 0.15, k + 20).translate(Math.cos(k * 1.9) * 0.45, 0.35 + (k === 0) * 0.25, Math.sin(k * 1.9) * 0.45), '#ffffff', 0.5]));
   const bushSpots = scatter(420, (x, z, h) => open(x, z, h) && Math.hypot(x, z - 84) > 5 && (near(x, z, 5) || rnd() < 0.3), 1.2);
-  const bushes = instanced(bushGeo, lambert(), bushSpots, (d, s) => { d.position.set(s.x, s.h - 0.05, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.7 + rnd() * 0.8); });
+  const bushMat = lambert();
+  seeThrough(bushMat, 2.5, 6);
+  const bushes = instanced(bushGeo, bushMat, bushSpots, (d, s) => { d.position.set(s.x, s.h - 0.05, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.7 + rnd() * 0.8); });
   bushSpots.forEach((_, i) => bushes.setColorAt(i, C(['#4f8f3a', '#5f9e3f', '#467f36', '#7aa84a'][i % 4])));
   bushes.castShadow = true;
   meshes.push(bushes);
@@ -291,8 +350,8 @@ function props(treeSpots) {
   const lp = leaf.attributes.position;
   for (let i = 0; i < lp.count; i++) { const y = lp.getY(i); lp.setX(i, lp.getX(i) * (1 - y * 0.9)); lp.setZ(i, y * y * 0.35); }
   const fernGeo = baked([0, 1, 2, 3, 4, 5, 6].map((k) => [leaf.clone().rotateX(-0.65).rotateY((k / 7) * Math.PI * 2), '#ffffff', 0.45]));
-  const fernMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-  const fernTime = windy(fernMat, 0.06);
+  const fernMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  windy(fernMat, 0.06);
   const fernSpots = scatter(520, (x, z, h) => open(x, z, h), 1.0);
   const ferns = instanced(fernGeo, fernMat, fernSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.7); });
   fernSpots.forEach((_, i) => ferns.setColorAt(i, C(['#7fb04a', '#6aa23f', '#93bf55'][i % 3])));
@@ -311,24 +370,24 @@ function props(treeSpots) {
   const petal = new THREE.IcosahedronGeometry(0.07, 0);
   const cluster = baked([0, 1, 2, 3, 4].map((k) => [petal.clone().translate(Math.cos(k * 2.4) * 0.22 * (k > 0), 0.14 + (k % 2) * 0.05, Math.sin(k * 2.4) * 0.22 * (k > 0)), '#ffffff', 0]));
   const flowerSpots = scatter(1400, (x, z, h) => open(x, z, h) && N.noise(x * 0.07 + 30, z * 0.07) > 0.05, 0.6);
-  const flowers = instanced(cluster, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#221111' }), flowerSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.6); });
+  const flowers = instanced(cluster, new THREE.MeshLambertNodeMaterial({ vertexColors: true, emissive: '#221111' }), flowerSpots, (d, s) => { d.position.set(s.x, s.h, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.6); });
   flowerSpots.forEach((_, i) => flowers.setColorAt(i, C(i % 5 === 0 ? '#fff5e0' : i % 7 === 0 ? '#ffd23f' : '#e5383b')));
   meshes.push(flowers);
 
   const crystalGeo = baked([0, 1, 2].map((k) => [new THREE.OctahedronGeometry(0.12 - k * 0.025, 0).scale(1, 1.8, 1).rotateZ((k - 1) * 0.35).translate((k - 1) * 0.12, 0.16, 0), '#ffffff', 0]));
   const crystalSpots = scatter(260, (x, z, h) => open(x, z, h), 1.5);
-  const crystals = instanced(crystalGeo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#1a2a9a', emissiveIntensity: 0.6 }), crystalSpots, (d, s) => { d.position.set(s.x, s.h - 0.03, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.8); });
+  const crystals = instanced(crystalGeo, new THREE.MeshLambertNodeMaterial({ vertexColors: true, emissive: '#1a2a9a', emissiveIntensity: 0.6 }), crystalSpots, (d, s) => { d.position.set(s.x, s.h - 0.03, s.z); d.rotation.set(0, rnd() * 6, 0); d.scale.setScalar(0.8 + rnd() * 0.8); });
   crystalSpots.forEach((_, i) => crystals.setColorAt(i, C(i % 3 ? '#3a5cff' : '#6a8cff')));
   meshes.push(crystals);
 
-  return { meshes, uTime: fernTime };
+  return { meshes };
 }
 
 function mesas(scene) {
   // a flag on every company mesa
   for (const m of MESAS) {
     const top = height(m.x, m.z);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 5, 6), new THREE.MeshLambertMaterial({ color: '#f5f1e8' }));
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 5, 6), new THREE.MeshLambertNodeMaterial({ color: '#f5f1e8' }));
     pole.position.set(m.x, top + 2.5, m.z);
     pole.castShadow = true;
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
@@ -337,25 +396,28 @@ function mesas(scene) {
     g.fillStyle = '#fff'; g.font = '700 64px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(m.ticker, 128, 68);
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.5).translate(1.5, 0, 0), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.5).translate(1.5, 0, 0), new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide }));
     flag.position.set(m.x, top + 4.2, m.z);
     scene.add(pole, flag);
   }
 }
 
 export function buildIsland(scene) {
-  const terrainTex = terrainData();
+  terrainData();
   scene.add(terrain());
-  const w = water(terrainTex); scene.add(w);
+  scene.add(water());
   const f = forests(); scene.add(...f.meshes);
   const p = props(f.spots); scene.add(...p.meshes);
-  const grass = grassField(terrainTex); scene.add(grass.mesh);
+  const grass = grassField(); scene.add(grass.mesh);
+  const dust = motes(); scene.add(dust.mesh);
+  scene.add(clouds());
   mesas(scene);
   return {
     grass,
     update(time, focus) {
-      w.material.uniforms.uTime.value = time; f.uTime.value = time; p.uTime.value = time;
-      grass.uniforms.uTime.value = time; grass.uniforms.uFocus.value.set(focus.x, focus.z);
+      uTime.value = time;
+      grass.uFocus.value.set(focus.x, focus.z);
+      dust.uFocus.value.set(focus.x, focus.z);
     },
   };
 }

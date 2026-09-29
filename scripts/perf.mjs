@@ -12,7 +12,7 @@ const srv = startServer({ port: 5292, prod: true, vite: false, secret: 'perf' })
 const bots = [...Array(8)].map((_, i) => srv.game.join({ name: `agent-${i}`, kind: 'agent' }));
 const roam = setInterval(() => { for (const b of bots) if (!b.path) srv.game.act(b.id, 'walk_to', { target: { x: b.x + (Math.random() - 0.5) * 40, z: b.z + (Math.random() - 0.5) * 40 }, wait: false }); }, 1500);
 
-const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
+const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
 const errs = [];
@@ -24,7 +24,7 @@ await page.click('#play');
 await new Promise((r) => setTimeout(r, 3000));
 const m = await page.evaluate(() => new Promise((res) => {
   let n = 0; const t0 = performance.now();
-  const f = () => { n++; if (performance.now() - t0 < 5000) requestAnimationFrame(f); else res({ fps: n / ((performance.now() - t0) / 1000), calls: window.__dbi.renderer.info.render.calls, tris: window.__dbi.renderer.info.render.triangles, players: window.__dbi.players.size }); };
+  const f = () => { n++; if (performance.now() - t0 < 5000) requestAnimationFrame(f); else res({ fps: n / ((performance.now() - t0) / 1000), calls: window.__dbi.renderer.info.render.drawCalls ?? window.__dbi.renderer.info.render.calls, tris: window.__dbi.renderer.info.render.triangles, players: window.__dbi.players.size }); };
   requestAnimationFrame(f);
 }));
 if (process.argv[2]) await page.screenshot({ path: process.argv[2] });

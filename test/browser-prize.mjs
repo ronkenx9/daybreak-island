@@ -24,7 +24,7 @@ const srv = startServer({ port: PORT, prod: true, vite: false, secret: 'browser'
 
 const player = privateKeyToAccount(generatePrivateKey());
 await fork.fundEth(player.address);
-const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--mute-audio'] });
+const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--mute-audio'] });
 const finish = async (code) => { await browser.close(); srv.close(); fork.close(); process.exit(code); };
 try {
   const page = await browser.newPage();

@@ -116,3 +116,22 @@ Target: sun shadows, dense wind-blown grass and props, forest clumps, finishing 
   CHECK: node scripts/check-visuals.mjs --mechanics
   EXPECT: MECHANICS UI OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=eed0675d183d355a54814b10135d45ad511456779dbbfbc0dee2533567945f81; exit=0; EXPECT=matched; output-sha256=f6bc5bb00f3c404bfa3ec109375059aa98c954214144a58b38637a778545a514; output-bytes=128; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+## Slice 6: WebGPU renderer + AAA polish
+
+Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devices without WebGPU), and a cinematic finish: ambient occlusion, bloom, real depth of field, temporal anti-aliasing, colour grading, character rim light, drifting cloud shadows, sunlight dust motes, water sun glint. Same gameplay, same speed budget.
+
+- [x] G22: The game runs on the WebGPU backend when available and on the WebGL2 fallback when forced, with no page errors on either; all visual effects and mechanics checks pass on WebGPU.
+  CHECK: node scripts/check-visuals.mjs --backends && node scripts/check-visuals.mjs --backends --webgl
+  EXPECT: BACKEND OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=02cc259908c4960bb01e1b16faccb70374ad85d4477344e3f807ba7b735aec76; exit=0; EXPECT=matched; output-sha256=a5149fc4379bc8c18f309c874f56ec6ad4b5752a2afc5640bfdc3e1675c3c89d; output-bytes=305; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G23: The high tier's finishing chain really contains ambient occlusion, bloom, depth of field, temporal anti-aliasing and colour grading; cloud shadows, dust motes and rim light are on; cheaper tiers drop the heavy passes.
+  CHECK: node scripts/check-visuals.mjs --polish
+  EXPECT: POLISH OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=e8b8efced5d6dc77068314a25744d73c242a3df7dc958bcf2aa16b9e5d081751; exit=0; EXPECT=matched; output-sha256=efd11ce37fb7275ca8b8b2910c7c81d749dbe7206d9ce5f784cdbc6fde6287b3; output-bytes=346; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G24: Still fast on the new renderer: 60fps on the high tier in headless Chrome (WebGPU, 1280x720, 9 characters), under 150 draw calls, JS under 1.5MB.
+  CHECK: node scripts/perf.mjs
+  EXPECT: PERF OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=c75e17706f6438f6e04faa9ce95723a19cadd56172bc2617d9671dc1226f4965; exit=0; EXPECT=matched; output-sha256=58483ea2e856b073b775c337710ee13da552a6e03adcf49db8f8ba86b03de2ed; output-bytes=69; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

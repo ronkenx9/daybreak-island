@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { buildIsland } from './scene.js';
 import { makeRenderer } from './render.js';
 import { makeFx } from './fx.js';
@@ -12,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
 // ---------------------------------------------------------------- renderer, lights, finishing pass
-const view = makeRenderer($('app'), { tier: params.get('quality') });
+const view = await makeRenderer($('app'), { tier: params.get('quality'), backend: params.get('backend') });
 const { renderer, scene, camera } = view;
 const island = buildIsland(scene);
 view.onTier((tier) => island.grass.setDensity(tier.grass));
@@ -131,8 +131,9 @@ addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'Space') 
 addEventListener('blur', () => { keys.clear(); stopSweep(); });
 function sendMove() {
   if (!me) return;
-  const dx = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-  const dz = (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0);
+  // screen-relative: the camera looks south (+z), so 'up' walks toward the sea
+  const dx = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0);
+  const dz = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
   const k = `${dx},${dz}`;
   if (k !== lastMove) { lastMove = k; act('move', { dx, dz }); }
 }
@@ -332,17 +333,25 @@ function frame() {
   const lead = focus && Math.hypot(focus.target.x - focus.cur.x, focus.target.z - focus.cur.z) > 0.05 ? 1.6 : 0;
   const fx1 = fx0 + (focus ? Math.sin(focus.cur.h) * lead : 0), fz1 = fz0 + (focus ? Math.cos(focus.cur.h) * lead : 0);
   if (PORTRAIT && focus) { const h = focus.cur.h; camPos.set(fx0 + Math.sin(h) * 5.5, fy + 2.2, fz0 + Math.cos(h) * 5.5); camLook.set(fx0, fy + 1.3, fz0); } else {
-    camPos.lerp(v.set(fx1, fy + 21 * ZOOM, fz1 + 20 * ZOOM), 1 - Math.exp(-dt * 3.5));
-    camLook.lerp(v.set(fx1, fy + 0.6, fz1), 1 - Math.exp(-dt * 5));
+    camPos.lerp(v.set(fx1 + 1.2 * ZOOM, fy + 4.6 * ZOOM, fz1 - 10.5 * ZOOM), 1 - Math.exp(-dt * 3.5));
+    camLook.lerp(v.set(fx1, fy + 2.6, fz1 + 4), 1 - Math.exp(-dt * 5));
   }
+  // never let the ground get between the camera and the player: lift over any hill on the way
+  let lift = 0;
+  for (let k = 1; k <= 6; k++) {
+    const t = k / 6, sx = fx0 + (camPos.x - fx0) * t, sz = fz0 + (camPos.z - fz0) * t;
+    lift = Math.max(lift, groundAt(sx, sz) + 1.4 + t * 1.5 - (fy + (camPos.y - fy) * t));
+  }
+  camPos.y += Math.max(0, lift) * Math.min(1, dt * 8) + (lift > 1.5 ? lift - 1.5 : 0);
   camera.position.copy(camPos);
   if (fx.shake > 0.01) camera.position.add(v.set((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake));
   camera.lookAt(camLook);
-  focusV.set(camLook.x, fy, camLook.z);
+  focusV.set(fx0, fy + 1, fz0);
   island.update(now / 1000, focusV);
   view.render(focusV, dt, now);
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 2) { window.__fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
 }
 renderer.setAnimationLoop(frame);
+if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
 window.__dbi = { renderer, scene, players, view, fx, island, get me() { return me; } };

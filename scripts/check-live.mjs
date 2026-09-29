@@ -5,7 +5,7 @@
 import puppeteer from 'puppeteer-core';
 
 const URL = process.argv[2] ?? 'https://daybreak-island.vercel.app/';
-const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
+const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720 });
 const errs = [], sockets = [];

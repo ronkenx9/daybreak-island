@@ -1,7 +1,7 @@
 // Chibi Daybreak characters. Loads the Blender-made GLB when present
 // (public/models/chibi.glb), otherwise builds a light procedural stand-in
 // with the same parts and animation states: idle, walk, dig, cheer + emotes.
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { toon } from './scene.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -78,7 +78,7 @@ export function makeCharacter(lookId = 'racer') {
     [G('muff', () => new THREE.SphereGeometry(0.24, 10, 8)), L.flap, M(-0.7, -0.05, -0.02, 0.6, 1, 0.95)],
     [G('muff', () => new THREE.SphereGeometry(0.24, 10, 8)), L.flap, M(0.7, -0.05, -0.02, 0.6, 1, 0.95)],
   ]));
-  const face = new THREE.Mesh(G('face', () => new THREE.PlaneGeometry(0.9, 0.45)), new THREE.MeshBasicMaterial({ map: faceTex, transparent: true }));
+  const face = new THREE.Mesh(G('face', () => new THREE.PlaneGeometry(0.9, 0.45)), new THREE.MeshBasicNodeMaterial({ map: faceTex, transparent: true }));
   face.position.set(0, -0.02, 0.6);
   head.add(face);
   // limbs
@@ -92,7 +92,7 @@ export function makeCharacter(lookId = 'racer') {
   hands[1].add(shovel);
   shovel.visible = false;
   // blob shadow
-  const shadow = new THREE.Mesh(G('shadow', () => new THREE.CircleGeometry(0.62, 16).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.22, depthWrite: false }));
+  const shadow = new THREE.Mesh(G('shadow', () => new THREE.CircleGeometry(0.62, 16).rotateX(-Math.PI / 2)), new THREE.MeshBasicNodeMaterial({ color: '#000', transparent: true, opacity: 0.22, depthWrite: false }));
   shadow.position.y = 0.04;
   root.add(shadow);
 

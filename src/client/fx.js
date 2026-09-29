@@ -5,7 +5,7 @@
 //  - dirt: clods thrown up with each shovel stroke
 //  - chest reveal: a chest rises out of the hole, the lid pops, coins burst,
 //    a light beam (gold and tall for legendary)
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { groundAt } from '../shared/world.js';
 
@@ -27,7 +27,7 @@ export function makeFx(scene) {
   const ringGeo = new THREE.RingGeometry(0.8, 1, 48).rotateX(-Math.PI / 2);
   const rings = [];
   for (let i = 0; i < 36; i++) {
-    const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: '#5b8cff' }));
+    const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: '#5b8cff' }));
     m.visible = false; m.renderOrder = 2; m.userData = { t: 1 };
     scene.add(m); rings.push(m);
   }
@@ -62,7 +62,7 @@ export function makeFx(scene) {
     return mergeGeometries([base, ...clods]);
   })();
   const MAX_HOLES = 160;
-  const holes = new THREE.InstancedMesh(crater, new THREE.MeshLambertMaterial({ vertexColors: true }), MAX_HOLES);
+  const holes = new THREE.InstancedMesh(crater, new THREE.MeshLambertNodeMaterial({ vertexColors: true }), MAX_HOLES);
   holes.receiveShadow = true; holes.count = 0; holes.frustumCulled = false;
   scene.add(holes);
   const seenHoles = new Set();
@@ -74,8 +74,8 @@ export function makeFx(scene) {
     scene.add(mesh);
     return { mesh, parts: [], n };
   }
-  const dirt = pool(new THREE.DodecahedronGeometry(0.1, 0), new THREE.MeshLambertMaterial({ color: '#7a522e' }), 500);
-  const coins = pool(new THREE.CylinderGeometry(0.1, 0.1, 0.025, 10).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#ffcf3f', emissive: '#6a4a00' }), 240);
+  const dirt = pool(new THREE.DodecahedronGeometry(0.1, 0), new THREE.MeshLambertNodeMaterial({ color: '#7a522e' }), 500);
+  const coins = pool(new THREE.CylinderGeometry(0.1, 0.1, 0.025, 10).rotateX(Math.PI / 2), new THREE.MeshLambertNodeMaterial({ color: '#ffcf3f', emissive: '#6a4a00' }), 240);
   function emit(p, x, y, z, count, speed, up, life) {
     for (let i = 0; i < count && p.parts.length < p.n; i++) {
       const a = Math.random() * Math.PI * 2, s = speed * (0.5 + Math.random() * 0.7);
@@ -107,7 +107,7 @@ export function makeFx(scene) {
     paint(new THREE.CylinderGeometry(0.23, 0.23, 0.7, 10, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(0, 0, 0.23), '#9a6a3c'),
     paint(new THREE.BoxGeometry(0.1, 0.12, 0.06).translate(0, 0.02, 0.47), '#ffcf3f'),
   ]);
-  const chestMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const chestMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
   const beamGeo = new THREE.CylinderGeometry(0.16, 0.34, 1, 16, 1, true).translate(0, 0.5, 0);
   const seamGeo = new THREE.BoxGeometry(0.76, 0.07, 0.52).translate(0, 0.4, 0);
   const OPEN = 1.3; // rise, then shake with light leaking out, then pop
@@ -118,8 +118,8 @@ export function makeFx(scene) {
     const lidMesh = new THREE.Mesh(chestLid, chestMat);
     lidMesh.position.z = -0.23; lid.position.set(0, 0.4, 0.0); lid.add(lidMesh);
     body.castShadow = lidMesh.castShadow = true;
-    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-    const seam = new THREE.Mesh(seamGeo, new THREE.MeshBasicMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicNodeMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    const seam = new THREE.Mesh(seamGeo, new THREE.MeshBasicNodeMaterial({ color: RARITY[rarity] ?? RARITY.common, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
     g.add(body, lid, beam, seam);
     const y0 = groundAt(x, z);
     g.position.set(x, y0 - 0.7, z);
@@ -168,7 +168,7 @@ export function makeFx(scene) {
     bag: () => [S(0.2, 0, 0.18, 0, '#b08a5a', 1.1), Cy(0.06, 0.06, 0, 0.4, 0, '#8a6a3a')],
     can: () => [Cy(0.09, 0.24, 0, 0.12, 0, '#b9c0c8'), Cy(0.092, 0.12, 0, 0.12, 0, '#3a7bd5')],
   };
-  const junkMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const junkMat = new THREE.MeshLambertNodeMaterial({ vertexColors: true });
   const junks = [];
   function revealJunk(x, z, kind) {
     junkGeo[kind] ??= mergeGeometries((JUNK_PARTS[kind] ?? JUNK_PARTS.can)());

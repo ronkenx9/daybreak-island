@@ -4,7 +4,7 @@
 //    (the glowing head skin stays separate), about 8 draw calls per character
 //  - material names drive per-look recolouring (Hat, Flap, Jacket, ...)
 //  - the exported actions (idle, walk, dig, cheer, wave, sad) play via a mixer
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toon, toonRamp } from './scene.js';
@@ -121,9 +121,10 @@ function shovelGeometry(T) {
   return g;
 }
 
-const partMat = toon({ vertexColors: true });
+// soft felt: fabric sheen catches the low sun on every edge
+const partMat = new THREE.MeshPhysicalNodeMaterial({ vertexColors: true, roughness: 0.8, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color('#fff1e0') });
 let skinMat = null;
-const detectorLedMat = new THREE.MeshBasicMaterial({ color: '#3b4dff' });
+const detectorLedMat = new THREE.MeshBasicNodeMaterial({ color: '#3b4dff' });
 const BAR_COLORS = ['#3b4dff', '#3b4dff', '#4fc3ff', '#7dffa8', '#ffe066', '#ffcf3f'].map((c) => new THREE.Color(c));
 
 export function makeChibi(look = 'racer') {
@@ -144,7 +145,8 @@ export function makeChibi(look = 'racer') {
   root.updateMatrixWorld(true);
   const skeleton = new THREE.Skeleton(BONES.map((b) => nodes[b])); // inverses from the rest pose
   const body = new THREE.SkinnedMesh(bodyGeometry(T, look), partMat);
-  skinMat ??= new THREE.MeshToonMaterial({ gradientMap: toonRamp, color: '#14151f', emissive: '#4aa8ff', emissiveMap: Object.values(T.skinGroups)[0]?.[0]?.userData.emissiveMap, emissiveIntensity: 1.3 });
+  // glossy dark head with glowing cracks
+  skinMat ??= new THREE.MeshPhysicalNodeMaterial({ color: '#14151f', roughness: 0.38, clearcoat: 0.8, clearcoatRoughness: 0.2, emissive: '#4aa8ff', emissiveMap: Object.values(T.skinGroups)[0]?.[0]?.userData.emissiveMap, emissiveIntensity: 2.2 });
   const head = new THREE.SkinnedMesh(headGeometry(T), skinMat);
   for (const m of [body, head]) { rig.add(m); m.bind(skeleton); m.castShadow = true; m.frustumCulled = false; }
 
@@ -157,7 +159,7 @@ export function makeChibi(look = 'racer') {
   nodes.arm_R.add(detector.pivot);
 
   // blob shadow: a soft contact shadow under the feet (real shadows come from the sun)
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.16, depthWrite: false }));
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicNodeMaterial({ color: '#000', transparent: true, opacity: 0.16, depthWrite: false }));
   shadow.position.y = 0.04;
   root.add(shadow);
 

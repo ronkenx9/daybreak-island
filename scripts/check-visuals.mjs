@@ -11,6 +11,9 @@ import { makeNoise } from '../src/shared/noise.js';
 
 const TIERS = process.argv.includes('--tiers');
 const MECH = process.argv.includes('--mechanics');
+const POLISH = process.argv.includes('--polish');
+const BACKENDS = process.argv.includes('--backends');
+const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
 const PORT = 5297, wait = (ms) => new Promise((r) => setTimeout(r, ms));
 execFileSync('npx', ['vite', 'build'], { stdio: 'ignore' });
 const store = openDb(':memory:');
@@ -25,12 +28,12 @@ for (let r = 0; r < 4000 && !spot; r++) {
   if (h > 2 && pathDist(x, z) > 6 && N.fbm(x * 0.018 + 5, z * 0.018 - 3, 3) > -0.05 && N.fbm(x * 0.018 + 5, z * 0.018 - 3, 3) < 0.02) spot = { x, z };
 }
 
-const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
+const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720 });
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${PORT}/${QS}`, { waitUntil: 'load' });
 await page.type('#name', 'visual-check');
 await page.click('#play');
 await page.waitForFunction(() => window.__dbi?.me && window.__dbi.players.get(window.__dbi.me), { timeout: 15000 });
@@ -41,7 +44,32 @@ await wait(2500);
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
 
-if (MECH) {
+if (BACKENDS) {
+  // this run: whichever backend the page picked; the webgl run is a second invocation (see below)
+  const info = await page.evaluate(() => window.__dbi.view.info());
+  check(info.backend === (QS ? 'webgl' : 'webgpu'), `backend ${info.backend}`);
+  await page.screenshot({ path: `evidence/backend-${info.backend}.png` });
+  console.log(`backend=${JSON.stringify(info)}`);
+} else if (POLISH) {
+  const high = await page.evaluate(() => {
+    const d = window.__dbi;
+    let motes = false, clouds = false, fill = 0, sheen = false;
+    d.scene.traverse((o) => {
+      if (o.geometry?.attributes?.aMote) motes = true;
+      if (o.isInstancedMesh && o.material?.fog === false) clouds = true;
+      if (o.isDirectionalLight) fill++;
+      if (o.isSkinnedMesh && o.material?.sheen > 0) sheen = true;
+    });
+    return { ...d.view.info(), motes, clouds, lights: fill, sheen };
+  });
+  for (const k of ['ao', 'traa', 'bloom', 'dof', 'grade', 'motes', 'clouds', 'sheen']) check(high[k], `${k} on the high tier`);
+  check(high.lights >= 2, 'sun + camera fill light');
+  await page.evaluate(() => window.__dbi.view.setTier('medium'));
+  await wait(800);
+  const med = await page.evaluate(() => window.__dbi.view.info());
+  check(!med.ao && !med.traa && !med.dof && med.bloom, `medium drops the heavy passes (${JSON.stringify(med)})`);
+  console.log(`high=${JSON.stringify(high)} medium=${JSON.stringify(med)}`);
+} else if (MECH) {
   // count the human's detector readings on the server
   let detects = 0;
   const act0 = srv.game.act.bind(srv.game);
@@ -97,11 +125,11 @@ if (MECH) {
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   const after = await page.evaluate(() => ({ ...window.__dbi.view.info(), grass: window.__dbi.island.grass.mesh.geometry.instanceCount }));
   check(after.tier !== 'high', `stepped down under load (${JSON.stringify(after)})`);
-  check(!after.post, 'blur pass off on the cheaper tier');
+  check(after.post !== 'full' && !after.ao && !after.dof, 'heavy passes off on the cheaper tier');
   check(after.grass < 110000, 'less grass on the cheaper tier');
   await page.evaluate(() => window.__dbi.view.setTier('low'));
   const low = await page.evaluate(() => ({ ...window.__dbi.view.info(), grass: window.__dbi.island.grass.mesh.geometry.instanceCount }));
-  check(!low.shadows && !low.post && low.grass <= 22000, `low tier is cheap (${JSON.stringify(low)})`);
+  check(!low.shadows && low.post !== 'full' && low.grass <= 22000, `low tier is cheap (${JSON.stringify(low)})`);
   console.log(`start=${JSON.stringify(start)} afterLoad=${JSON.stringify(after)} low=${JSON.stringify(low)}`);
 } else {
   const base = await page.evaluate(() => ({ ...window.__dbi.view.info(), grass: window.__dbi.island.grass.mesh.geometry.instanceCount }));
@@ -129,8 +157,8 @@ if (MECH) {
   check(dig.holes > 0, 'hole growing'); check(dig.dirt > 0, 'dirt flying');
   await page.screenshot({ path: 'evidence/visuals-3-dig.png' });
 
-  // reveal: chest rises out of the hole, coins burst
-  await wait(1500);
+  // reveal: chest rises out of the hole, shakes, then the coins burst
+  await page.waitForFunction(() => window.__dbi.fx.coins.mesh.count > 0, { timeout: 6000 }).catch(() => {});
   const rev = await page.evaluate(() => ({ reveals: window.__dbi.fx.reveals.length, coins: window.__dbi.fx.coins.mesh.count }));
   check(rev.reveals > 0, 'chest rises'); check(rev.coins > 0, 'coins burst');
   await page.screenshot({ path: 'evidence/visuals-4-reveal.png' });
@@ -142,6 +170,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);
