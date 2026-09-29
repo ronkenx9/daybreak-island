@@ -42,6 +42,7 @@ await test('digging where nothing is buried often turns up junk', async () => {
 
 await test('consecutive finds build a streak that multiplies made-up loot; a miss resets it', async () => {
   const g = new Game({ secret: 'm3' });
+  g.council.rules.lootTax = 0; // the treasury tax is covered in test/council.mjs
   const p = g.join({ name: 'streaker' });
   const got = [];
   for (let i = 0; i < 4; i++) { clearNear(g, p); chestAt(g, p, 'common', { MOON: 10 }); const r = await dig(g, p.id); got.push([r.streak, r.multiplier, r.loot.MOON]); }
@@ -72,6 +73,7 @@ await test('if someone digs your chest first, you are told', async () => {
 
 await test('real prizes are not multiplied by streaks (only made-up loot)', async () => {
   const g = new Game({ secret: 'm5' });
+  g.council.rules.lootTax = 0;
   const p = g.join({ name: 'legend' });
   p.streak = 9;
   clearNear(g, p); chestAt(g, p, 'legendary', { MOON: 80 });

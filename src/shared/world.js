@@ -92,18 +92,75 @@ function baseHeight(x, z) {
 export const CELL = 1;
 export const GRID = SIZE / CELL;
 export const MAX_RISE = 1.1; // hop-able ledge; bigger drops/rises are walls
-let H = null;
+let H = null, H0 = null; // H0: the island after pit/trap fixes; H: plus buildings stamped on top
+let OBSTACLES = []; // [{ x, z, r }] footprints that block walking (council buildings)
 export const toCell = (v) => Math.max(0, Math.min(GRID - 1, Math.floor((v + SIZE / 2) / CELL)));
 export const toWorld = (i) => (i + 0.5) * CELL - SIZE / 2;
 export function grid() {
   if (!H) {
-    H = new Float32Array(GRID * GRID);
-    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) H[j * GRID + i] = height(toWorld(i), toWorld(j));
-    fillPits(H);
-    fixTraps(H);
+    H0 = new Float32Array(GRID * GRID);
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) H0[j * GRID + i] = height(toWorld(i), toWorld(j));
+    fillPits(H0);
+    fixTraps(H0);
+    H = H0.slice();
+    stamp(H, OBSTACLES);
   }
   return H;
 }
+// buildings are walls: raise their footprint well above a step
+function stamp(G, list) {
+  for (const o of list) {
+    const i0 = toCell(o.x - o.r), i1 = toCell(o.x + o.r), j0 = toCell(o.z - o.r), j1 = toCell(o.z + o.r);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(toWorld(i) - o.x, toWorld(j) - o.z) <= o.r) G[j * GRID + i] = H0[j * GRID + i] + 3;
+  }
+}
+/** Replace the set of building footprints that block walking. */
+export function setObstacles(list) {
+  OBSTACLES = list.map((o) => ({ x: o.x, z: o.z, r: o.r }));
+  if (H) { H.set(H0); stamp(H, OBSTACLES); }
+}
+export const obstacles = () => OBSTACLES;
+/** How many cells a walker can reach from spawn (and walk back from), with an optional extra footprint. */
+export function reachable(extra = null) {
+  grid();
+  const G = extra ? H.slice() : H;
+  if (extra) stamp(G, [extra]);
+  const ok = (a, b) => G[b] > 0.25 && Math.abs(G[b] - G[a]) < MAX_RISE * 0.9;
+  const s = toCell(SPAWN.z) * GRID + toCell(SPAWN.x);
+  const seen = new Uint8Array(GRID * GRID), stack = [s]; seen[s] = 1;
+  let n = 1;
+  while (stack.length) {
+    const c = stack.pop(), ci = c % GRID, cj = (c - ci) / GRID;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const i = ci + di, j = cj + dj, m = j * GRID + i;
+      if (i < 0 || j < 0 || i >= GRID || j >= GRID || seen[m] || !ok(c, m)) continue;
+      seen[m] = 1; n++; stack.push(m);
+    }
+  }
+  return n;
+}
+/** Is (x, z) a buildable site of radius r? Flat dry land, clear of the path, pier, lighthouse, huts and spawn. */
+export function siteCheck(x, z, r, { onPath = false, maxSlope = 2.8 } = {}) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return { ok: false, reason: 'x and z must be numbers' };
+  if (Math.abs(x) > SIZE / 2 - r - 6 || Math.abs(z) > SIZE / 2 - r - 6) return { ok: false, reason: 'outside the island' };
+  let lo = Infinity, hi = -Infinity;
+  // an even world-aligned grid over the footprint, so a smaller building always fits where a bigger one does
+  for (let gx = Math.ceil((x - r) / 1.5) * 1.5; gx <= x + r; gx += 1.5) for (let gz = Math.ceil((z - r) / 1.5) * 1.5; gz <= z + r; gz += 1.5) {
+    if (Math.hypot(gx - x, gz - z) > r) continue;
+    const h = baseHeight(gx, gz);
+    lo = Math.min(lo, h); hi = Math.max(hi, h);
+  }
+  if (lo === Infinity) { lo = hi = baseHeight(x, z); }
+  if (lo < 1.3) return { ok: false, reason: 'too close to the water (build on the grass)' };
+  if (hi - lo > maxSlope) return { ok: false, reason: `too steep here (${(hi - lo).toFixed(1)}m of slope), pick a flatter spot` };
+  if (!onPath && pathDist(x, z) < r + 2.5) return { ok: false, reason: 'that would block the main path' };
+  if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < r + 8) return { ok: false, reason: 'too close to spawn' };
+  if (Math.abs(x - PIER.x) < r + 4 && z > PIER.z0 - r - 6) return { ok: false, reason: 'in the way of the pier' };
+  if (Math.hypot(x - LIGHTHOUSE.x, z - LIGHTHOUSE.z) < r + 8) return { ok: false, reason: 'too close to the lighthouse' };
+  for (const hut of HUTS) if (Math.hypot(x - hut.x, z - hut.z) < r + 5) return { ok: false, reason: 'too close to the beach huts' };
+  return { ok: true, y: (lo + hi) / 2, slope: hi - lo };
+}
+export const baseHeightAt = (x, z) => baseHeight(x, z);
 // Coves between mountains and the sea can still be one-way (drop in, can't climb
 // out, the only other exit is water). Raise any cell you can reach from spawn but
 // can't walk back to spawn from, until there are none.

@@ -83,6 +83,21 @@ Any OpenAI-compatible endpoint works (`BANKR_LLM_BASE`, default the Bankr LLM ga
 
 `scripts/recorder.mjs` films the island in cinema mode (no HUD) with a director that cuts to whoever just did something interesting, and `scripts/highlights.mjs` cuts clips around the best moments for `montage/`.
 
+## The Island Council: an island that evolves itself
+
+Nobody designs the island by hand any more. Its citizens (the AI agents, and any human who wants a say) run it through a council that loops on its own, every ~14 minutes:
+
+1. **Research + pitch.** Everyone can read the island report: what's missing, where people dig and hang out, how each building is used, flat build sites, what humans said. Each citizen may pitch one change, paying a small fee from their own bag.
+2. **Debate.** Comments on each pitch.
+3. **Vote.** One vote each; backers pledge stock into the treasury.
+4. **Enact.** Pitches with more yes than no are paid for from the treasury (fed by a 10% tax on every chest), best-first. Buildings then go up over a few minutes, faster when players walk over and help.
+
+Agents change the world only through a validated genome, never code: a catalogue of buildings (town hall, plaza, stock exchange, market, survey tower, beacon, garden, statue, lab, bank, shelter, roads), rule knobs clamped to bounds, new made-up stock listings (once there's an exchange), island events, upgrades and demolitions. Buildings only go on flat free land and never wall off part of the island. Anything bigger goes on a ranked wishlist for the humans who maintain the game. Every building does something: the town hall becomes the meeting place, a survey tower stretches detectors, a beacon draws chests, a market recycles junk into stock, roads are faster. The chronicle records the island's history, and the state (buildings, treasury, rules, saved bags) survives restarts.
+
+Critters are the owner's own pitch, off until the council votes them on: brutes you beat together for their hoard of stock, and shades you hide from (dig a hole and hide in it, or stand right by a building). A catch knocks part of your bag loose, buried where you fell for anyone to dig up.
+
+Agents on a server: `node scripts/ai-agents.mjs --url ... --agents 6 --minutes 1e9 --budget 3 --daily --play-rate 0.15` keeps six agents living on the island with a daily spending cap; every council decision goes to the model, only some everyday ones do.
+
 ## Real-stock prizes (Robinhood Chain testnet)
 
 Legendary chests can win a **real tokenized stock** (TSLA, AMZN, NFLX, PLTR, AMD on Robinhood Chain). The design keeps bots, bugs and hacks from draining the pool:
@@ -122,20 +137,25 @@ The page is static and runs anywhere (it's on Vercel; `vite build --mode vercel`
 | Prize rules: daily pool, one per wallet, wallet proof, restart-safe | `node test/prizes.mjs` |
 | Real stock collected on a fork of Robinhood Chain (API and MCP agents) | `node test/chain-e2e.mjs` |
 | Win and collect in the browser | `node test/browser-prize.mjs` |
+| Council loop: fees, votes, pledges, tax, funding, construction, restarts | `node test/council.mjs` |
+| The genome: placement, walls, clamped rules, listings, wishlist, building effects | `node test/council-genome.mjs` |
+| AI agents run a full council epoch (stub model) | `node test/ai-council.mjs` |
+| Buildings, council panel, human vote, critters in the browser | `node scripts/check-visuals.mjs --council` |
+| Critters | `node test/critters.mjs` |
 
 ## Layout
 
 ```
-server/        game simulation (game.mjs) and HTTP/WS server (index.mjs)
+server/        game simulation (game.mjs), island council (council.mjs), critters (critters.mjs), HTTP/WS server (index.mjs)
 src/shared/    island heightmap, walkability, A* pathfinding (shared by server and client)
 src/client/    three.js renderer, character, HUD
-scripts/       sim bots, MCP server, perf/soak/GLB checks, Blender model script
+scripts/       sim bots, MCP server, AI agents, perf/soak/visual checks, recorder, promo footage
 test/          unit and MCP end-to-end tests
 ```
 
 ## Roadmap
 
-- **Stock Critters**: beat bosses that drop made-up stocks
+- Whatever the council decides next (see the wishlist: `GET /api/council`)
 
 ## License
 

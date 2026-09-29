@@ -9,24 +9,29 @@ export const PRICES = { 'claude-haiku-4.5': { in: 1.5, out: 7.5 } };
 
 export class BudgetExhausted extends Error {}
 
-export function makeMeter({ budget = 20, file = 'data/ai-spend.json' } = {}) {
-  let state = { spent: 0, calls: 0, tokensIn: 0, tokensOut: 0, startedAt: new Date().toISOString() };
+/** daily: the cap resets every UTC day (for agents that run around the clock); total spend keeps counting */
+export function makeMeter({ budget = 20, file = 'data/ai-spend.json', daily = false, now = () => Date.now() } = {}) {
+  let state = { spent: 0, calls: 0, tokensIn: 0, tokensOut: 0, total: 0, startedAt: new Date().toISOString() };
   try { state = { ...state, ...JSON.parse(readFileSync(file, 'utf8')) }; } catch { /* first run */ }
+  const today = () => new Date(now()).toISOString().slice(0, 10);
+  const roll = () => { if (daily && state.day !== today()) { state.day = today(); state.spent = 0; } };
+  roll();
   const save = () => { if (!file) return; mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, JSON.stringify({ ...state, budget, updatedAt: new Date().toISOString() }, null, 2)); };
   return {
-    get spent() { return state.spent; },
+    get spent() { roll(); return state.spent; },
     get calls() { return state.calls; },
-    get exhausted() { return state.spent >= budget; },
+    get exhausted() { roll(); return state.spent >= budget; },
     budget,
     add(model, usage) {
       const p = PRICES[model] ?? { in: 5, out: 25 };
       const cost = ((usage?.prompt_tokens ?? 0) * p.in + (usage?.completion_tokens ?? 0) * p.out) / 1e6;
-      state.spent += cost; state.calls++;
+      roll();
+      state.spent += cost; state.total = (state.total ?? 0) + cost; state.calls++;
       state.tokensIn += usage?.prompt_tokens ?? 0; state.tokensOut += usage?.completion_tokens ?? 0;
       save();
       return cost;
     },
-    snapshot: () => ({ ...state, budget }),
+    snapshot: () => ({ ...state, budget, daily }),
   };
 }
 

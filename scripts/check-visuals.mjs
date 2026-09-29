@@ -15,6 +15,7 @@ const POLISH = process.argv.includes('--polish');
 const BACKENDS = process.argv.includes('--backends');
 const CAMERA = process.argv.includes('--camera');
 const OVERHEAD = process.argv.includes('--overhead');
+const COUNCIL = process.argv.includes('--council');
 const INSIDER = process.argv.includes('--insider');
 const SCENIC = process.argv.includes('--scenic');
 const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
@@ -111,6 +112,73 @@ if (SCENIC) {
   check(/WAS THE INSIDER|GOT AWAY/.test(rev), `reveal banner (${rev})`);
   await page.screenshot({ path: 'evidence/insider-reveal.png' });
   console.log(`role=${role} hunt=${JSON.stringify(hunt)} meeting=${JSON.stringify(mtg)} reveal=${rev}`);
+} else if (COUNCIL) {
+  // every catalogue building on the island (some still going up), close-ups, the council panel, a human vote, critters
+  const { CATALOG } = await import('../server/council.mjs');
+  const c = srv.game.council;
+  const types = Object.keys(CATALOG).filter((t) => t !== 'road');
+  const placed = [];
+  for (const [i, type] of types.entries()) {
+    let ok = null;
+    for (let r = 0; r < 4000 && !ok; r++) {
+      const x = ((r * 29) % 240) - 120, z = ((r * 47) % 240) - 110;
+      const v = c.validate('build', { type, x, z, honoree: 'Juno' });
+      if (!v.error) ok = v.spec;
+    }
+    check(!!ok, `found a site for the ${type}`);
+    if (!ok) continue;
+    const b = { id: `v${i}`, type, x: ok.x, z: ok.z, rot: ok.rot, name: type === 'statue' ? 'Juno' : null, honoree: type === 'statue' ? 'Juno' : null, level: 1, progress: i % 4 === 3 ? 0.45 : 1, by: 'visual-check', epoch: 1 };
+    c.structures.push(b); c.sync(); placed.push(b);
+  }
+  const hall = placed.find((b) => b.type === 'town-hall');
+  if (hall) c.structures.push({ id: 'vroad', type: 'road', x: hall.x, z: hall.z + 10, x2: hall.x + 40, z2: hall.z + 26, rot: 0, level: 1, progress: 1 });
+  c.sync(); c.version++;
+  await wait(1500);
+  const live = await page.evaluate(() => window.__dbi.buildings?.live.size ?? 0);
+  check(live === c.structures.length, `every building renders (${live}/${c.structures.length})`);
+  const scaf = await page.evaluate(() => [...window.__dbi.buildings.live.values()].filter((b) => b.scaf?.visible).length);
+  check(scaf === placed.filter((b) => b.progress < 1).length, `buildings under construction stand in scaffolding (${scaf})`);
+  // close-ups from above, one per building
+  await page.evaluate(() => { document.body.classList.add('cinema'); window.__dbi.setOverhead(true); });
+  const shots = [];
+  for (const b of placed) {
+    await page.evaluate((b, r) => Object.assign(window.__dbi.sky, { x: b.x, z: b.z, dist: r, pitch: 0.6, yaw: b.rot + 0.55, followId: null }), b, Math.max(16, CATALOG[b.type].r * 3.6));
+    await wait(1600);
+    const f = `evidence/council-${b.type}.png`; await page.screenshot({ path: f }); shots.push(f);
+  }
+  while (shots.length % 4) shots.push(shots.at(-1));
+  execFileSync('ffmpeg', ['-v', 'error', '-y', ...shots.flatMap((f) => ['-i', f]), '-filter_complex', `${shots.map((_, i) => `[${i}]scale=640:-1[s${i}]`).join(';')};${Array.from({ length: shots.length / 4 }, (_, r) => `${[0, 1, 2, 3].map((k) => `[s${r * 4 + k}]`).join('')}hstack=4[r${r}]`).join(';')};${Array.from({ length: shots.length / 4 }, (_, r) => `[r${r}]`).join('')}vstack=${shots.length / 4}`, 'evidence/council-buildings.png']);
+  // the panel: pitches in the voting phase, a human votes from the page
+  await page.evaluate(() => { document.body.classList.remove('cinema'); window.__dbi.setOverhead(false); });
+  const agents = [...srv.game.players.values()].filter((p) => p.kind === 'agent');
+  agents.forEach((p) => { p.portfolio.MOON = 500; });
+  c.phase = 'propose'; c.left = 30;
+  const sites = c.sites(3);
+  c.structures = c.structures.filter((b) => b.type !== 'plaza'); c.sync();
+  const pid = srv.game.act(agents[0].id, 'propose', { kind: 'build', type: 'plaza', x: sites[0].x, z: sites[0].z, name: 'Sunset Square', pitch: 'a real town square, away from the beach' }).id;
+  srv.game.act(agents[1].id, 'propose', { kind: 'event', event: 'festival', pitch: 'party time' });
+  c.phase = 'vote'; c.left = 120; c.version++;
+  await page.click('#council-head');
+  await page.waitForFunction(() => document.querySelectorAll('#council-pitches button[data-v="yes"]').length >= 1, { timeout: 10000 }).catch(() => {});
+  await page.click(`#council-pitches button[data-id="${pid}"][data-v="yes"]`).catch(() => {});
+  await wait(800);
+  const q = c.proposals.find((x) => x.id === pid);
+  check(q && q.yes.has(me.id), 'a human voted from the council panel');
+  const panel = await page.evaluate(() => document.getElementById('council').innerText);
+  check(/Sunset Square/.test(panel) && /voting/.test(panel), `the panel shows the pitches and the phase (${panel.slice(0, 80).replace(/\n/g, ' ')})`);
+  // critters: a wave near the player, warning banner up
+  c.rules.critters = 1;
+  srv.game.critters.list = [
+    { id: 'kb', kind: 'brute', name: 'the $PUMP brute', ticker: 'PUMP', x: me.x + 7, z: me.z + 4, h: 0, hp: 110, max: 160, age: 0, cool: 9, dmg: {}, life: 200 },
+    { id: 'ks', kind: 'shade', name: 'a shade', x: me.x - 12, z: me.z + 6, h: 0, hp: 1, max: 1, age: 0, cool: 30, life: 200 },
+  ];
+  srv.game.critters.nextWave = 999;
+  await wait(1800);
+  const danger = await page.evaluate(() => !document.getElementById('danger').hidden && document.getElementById('danger').textContent);
+  check(!!danger, `a critter warning shows (${danger})`);
+  check(await page.evaluate(() => window.__dbi.critters.live.size) === 2, 'critters render');
+  await page.screenshot({ path: 'evidence/council-panel.png' });
+  console.log(`council: ${placed.length} buildings (+road), ${scaf} under construction, panel + vote + critters`);
 } else if (OVERHEAD) {
   // V: overhead spectator view. High camera, WASD/drag pans, wheel zooms, click follows, V returns.
   const camY = () => page.evaluate(() => { const d = window.__dbi; return { y: d.view.camera.position.y, on: d.sky.on, x: d.sky.x, z: d.sky.z, dist: d.sky.dist, follow: d.sky.followId }; });
@@ -308,6 +376,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = OVERHEAD ? 'OVERHEAD' : SCENIC ? 'SCENIC' : INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = COUNCIL ? 'COUNCIL UI' : OVERHEAD ? 'OVERHEAD' : SCENIC ? 'SCENIC' : INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

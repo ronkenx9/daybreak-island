@@ -201,6 +201,8 @@ function grassField() {
   const uFocus = uniform(new THREE.Vector2());
   const holes = Array.from({ length: 24 }, () => new THREE.Vector3()); // dug holes clear the grass: x, z, radius
   const uHoles = uniformArray(holes, 'vec3');
+  const clears = Array.from({ length: 48 }, () => new THREE.Vector3()); // council buildings, plazas and roads: x, z, radius
+  const uClears = uniformArray(clears, 'vec3');
   const b = attribute('aBlade', 'vec3');
   const wp = b.xy.add(float(PATCH).mul(floor(uFocus.sub(b.xy).div(PATCH).add(0.5))));
   const T = terrainAt(wp);
@@ -209,6 +211,10 @@ function grassField() {
     const edge = float(1).sub(smoothstep(PATCH * 0.34, PATCH * 0.5, distance(wp, uFocus)));
     const r = b.z;
     const s = step(fract(r.mul(91.7)), T.y).mul(edge).mul(r.mul(0.7).add(0.6)).toVar();
+    Loop(48, ({ i }) => {
+      const cl = uClears.element(i);
+      s.mulAssign(select(cl.z.greaterThan(0), smoothstep(cl.z, cl.z.add(0.6), distance(wp, cl.xy)), float(1)));
+    });
     Loop(24, ({ i }) => {
       const hl = uHoles.element(i);
       s.mulAssign(select(hl.z.greaterThan(0), smoothstep(hl.z.mul(0.75), hl.z.mul(1.15), distance(wp, hl.xy)), float(1)));
@@ -237,6 +243,7 @@ function grassField() {
     mesh, uFocus, parts: { tone, rr, hgt, tip, T, b, wp }, setDensity: (f) => { geo.instanceCount = Math.floor(MAX * f); },
     /** holes near the camera: [{ x, z, r }] */
     setHoles(list) { for (let k = 0; k < holes.length; k++) { const h = list[k]; holes[k].set(h ? h.x : 0, h ? h.z : 0, h ? h.r : 0); } },
+    setClears(list) { for (let k = 0; k < clears.length; k++) { const h = list[k]; clears[k].set(h ? h.x : 0, h ? h.z : 0, h ? h.r : 0); } },
   };
 }
 
@@ -518,6 +525,8 @@ export function buildIsland(scene) {
   scene.add(water());
   const f = forests(); scene.add(...f.meshes);
   const p = props(f.spots); scene.add(...p.meshes);
+  // foliage that the council builds over gets cleared (and comes back if a building is demolished)
+  const foliage = [...f.meshes, ...p.meshes].filter((m) => m.isInstancedMesh).map((m) => ({ m, orig: m.instanceMatrix.array.slice() }));
   const grass = grassField(); scene.add(grass.mesh);
   const dust = motes(); scene.add(dust.mesh);
   scene.add(clouds());
@@ -526,6 +535,20 @@ export function buildIsland(scene) {
   mesas(scene);
   return {
     grass,
+    fire: fire.group,
+    /** circles [{x, z, r}] where nothing should grow: council buildings, plazas, roads */
+    clear(circles) {
+      grass.setClears(circles.slice(0, 48));
+      for (const { m, orig } of foliage) {
+        const a = m.instanceMatrix.array;
+        for (let i = 0; i < m.count; i++) {
+          const x = orig[i * 16 + 12], z = orig[i * 16 + 14];
+          const hit = circles.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.2);
+          for (let k = 0; k < 16; k++) a[i * 16 + k] = hit ? (k === 15 ? 1 : 0) : orig[i * 16 + k];
+        }
+        m.instanceMatrix.needsUpdate = true;
+      }
+    },
     update(time, focus) {
       uTime.value = time;
       fire.update(time);

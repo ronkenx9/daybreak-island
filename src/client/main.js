@@ -3,6 +3,8 @@ import { buildIsland } from './scene.js';
 import { makeRenderer } from './render.js';
 import { makeFx } from './fx.js';
 import { makeBean, HEIGHT } from './bean.js';
+import { makeBuildings, makeCritters, footprint } from './buildings.js';
+let clearedSig = '';
 import { groundAt } from '../shared/world.js';
 import { CHAIN } from '../shared/chain.js';
 import { hasWallet, connect, signMessage, sendTx } from './wallet.js';
@@ -16,6 +18,8 @@ const { renderer, scene, camera } = view;
 const island = buildIsland(scene);
 view.onTier((tier) => island.grass.setDensity(tier.grass));
 const fx = makeFx(scene);
+const buildings = makeBuildings(scene);
+const critters = makeCritters(scene);
 const newCharacter = (look) => makeBean(look);
 const ZOOM = Number(params.get('zoom') ?? 1);
 const PORTRAIT = params.has('portrait'); // debug: front close-up of the followed character
@@ -52,7 +56,7 @@ const bubblesEl = $('bubbles');
 function onSnap(s) {
   snap = s;
   const seen = new Set();
-  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars, scanAge, dig] of s.players) {
+  for (const [id, name, kind, look, x, y, z, h, anim, say, emote, bars, scanAge, dig, hidden, stunned] of s.players) {
     seen.add(id);
     let p = players.get(id);
     if (!p) {
@@ -63,11 +67,26 @@ function onSnap(s) {
       p = { ch, tag, bub, cur: { x, y, z, h }, name, kind };
       players.set(id, p);
     }
-    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars, scanAge, dig, snapT: performance.now() });
+    Object.assign(p, { target: { x, y, z, h }, anim, say, emote, bars, scanAge, dig, hidden: !!hidden, stunned: !!stunned, snapT: performance.now() });
   }
   for (const [id, p] of players) if (!seen.has(id)) { scene.remove(p.ch.root); p.tag.remove(); p.bub.remove(); players.delete(id); }
   hud(s);
   insiderHud(s.insider);
+  buildings.sync(s.structures);
+  const sig = (s.structures ?? []).map((b) => `${b[0]}:${b[6]}`).join();
+  if (sig !== clearedSig) {
+    clearedSig = sig;
+    const circles = [];
+    for (const b of s.structures ?? []) {
+      if (b[1] === 'road') { const len = Math.hypot(b[9] - b[2], b[10] - b[3]); for (let t = 0; t <= len; t += 3) circles.push({ x: b[2] + ((b[9] - b[2]) * t) / len, z: b[3] + ((b[10] - b[3]) * t) / len, r: 1.8 }); }
+      else circles.push(footprint(b));
+    }
+    island.clear(circles);
+  }
+  critters.sync(s.critters);
+  // the campfire (and the meeting circle) move to wherever the council put the town centre
+  if (s.insider?.spot) island.fire.position.set(s.insider.spot.x, groundAt(s.insider.spot.x, s.insider.spot.z), s.insider.spot.z);
+  councilHud(s.council);
 }
 
 // ---------------------------------------------------------------- Insider (Among Us for stocks)
@@ -271,6 +290,8 @@ addEventListener('keydown', (e) => {
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
   if (e.code === 'Space') { e.preventDefault(); startSweep(); }
   if (e.code === 'KeyE' || e.code === 'KeyF') dig();
+  if (e.code === 'KeyH') act('hide').then((r) => { if (!r?.ok) toast(r?.error ?? 'nowhere to hide'); });
+  if (e.code === 'KeyR') act('attack').then((r) => { if (r && !r.ok && !/no brute/.test(r.error ?? '')) toast(r.error); });
   if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); }
   if (e.code === 'KeyC') resetView();
   if (e.code.startsWith('Digit')) { const em = ['wave', 'cheer', 'dance', 'sad', 'shrug'][Number(e.code.slice(5)) - 1]; if (em) act('emote', { name: em }); }
@@ -484,6 +505,64 @@ function follow(name) {
 }
 if (params.has('follow')) { const want = params.get('follow'); const t = setInterval(() => { if (follow(want)) clearInterval(t); }, 300); }
 
+// ---------------------------------------------------------------- island council panel
+let councilV = -1, councilData = null, councilOpen = false, councilAt = 0;
+const PHASE = { propose: 'pitching', debate: 'debating', vote: 'voting' };
+function councilHud(c) {
+  if (!c) return;
+  $('council-phase').textContent = `epoch ${c.epoch} · ${PHASE[c.phase] ?? c.phase} ${mmss(c.left)}`;
+  $('council-meta').textContent = `treasury ${fmt(c.treasury)} · ${c.pitches} pitch${c.pitches === 1 ? '' : 'es'}${c.festival ? ' · FESTIVAL: double loot' : ''}`;
+  const t = performance.now();
+  if (c.v !== councilV || t - councilAt > 8000) { councilV = c.v; councilAt = t; fetch(`${SERVER}/api/council`).then((r) => r.json()).then((d) => { councilData = d; renderCouncil(); }).catch(() => {}); }
+}
+function renderCouncil() {
+  const d = councilData;
+  if (!d) return;
+  const canVote = me && (d.phase === 'debate' || d.phase === 'vote');
+  const list = d.pitches.slice().sort((a, b) => (b.yes - b.no) - (a.yes - a.no));
+  $('council-pitches').innerHTML = (list.length ? list : []).slice(0, councilOpen ? 12 : 4).map((p) => `<li class="${p.status} ${/owner/.test(p.by) ? 'owner' : ''}"><b>${esc(p.title)}</b><span class="by">${esc(p.by)} · ${fmt(p.cost)}${p.backing ? ` · backed ${fmt(p.backing)}` : ''}${p.status !== 'open' ? ` · ${p.status}` : ''}</span>${p.pitch && councilOpen ? `<span class="why">"${esc(p.pitch)}"</span>` : ''}
+    <div class="tally">${canVote && p.status === 'open' ? `<button data-id="${p.id}" data-v="yes" class="${myVotes[p.id] === 'yes' ? 'on' : ''}">yes</button><button data-id="${p.id}" data-v="no" class="${myVotes[p.id] === 'no' ? 'on' : ''}">no</button>` : ''}<span>${p.yes} yes · ${p.no} no</span></div></li>`).join('') || '<li>No pitches yet this epoch. Agents are researching...</li>';
+  $('council-log').innerHTML = d.chronicle.slice(-6).reverse().map((l) => `<li>${esc(l.replace(/^epoch \d+: /, ''))}</li>`).join('');
+}
+const myVotes = {};
+$('council-head').addEventListener('click', () => { councilOpen = !councilOpen; $('council-more').hidden = !councilOpen; renderCouncil(); });
+$('council-pitches').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-id]');
+  if (!b) return;
+  act('council_vote', { id: b.dataset.id, vote: b.dataset.v }).then((r) => { if (r?.ok) { myVotes[b.dataset.id] = r.vote; councilAt = 0; } else toast(r?.error ?? 'vote failed'); });
+});
+$('council-idea').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('council-idea-text').value.trim();
+  if (!text || !me) return;
+  act('propose', { kind: 'idea', text }).then((r) => { toast(r?.ok ? 'Pitched to the council. The agents will argue about it.' : (r?.error ?? 'could not pitch')); if (r?.ok) $('council-idea-text').value = ''; councilAt = 0; });
+});
+function toast(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  $('feed').appendChild(div);
+  setTimeout(() => div.remove(), 6000);
+}
+// critters: name tags with health, and a warning when one is close
+function critterHud() {
+  const mine = players.get(me);
+  let danger = null;
+  for (const c of critters.live.values()) {
+    if (!c.tag) { c.tag = document.createElement('div'); c.tag.className = 'nametag critter'; bubblesEl.appendChild(c.tag); }
+    v.set(c.cur.x, groundAt(c.cur.x, c.cur.z) + (c.kind === 'brute' ? 3.9 : 3.1), c.cur.z).project(camera);
+    c.tag.hidden = v.z >= 1;
+    c.tag.style.transform = `translate(${(v.x * 0.5 + 0.5) * innerWidth}px, ${(-v.y * 0.5 + 0.5) * innerHeight}px) translate(-50%, 0)`;
+    c.tag.innerHTML = c.kind === 'brute' ? `${esc(c.name)}<span class="hpbar"><i style="width:${Math.round((c.hp ?? 1) * 100)}%"></i></span>` : 'shade';
+    if (mine) {
+      const d = Math.hypot(c.cur.x - mine.cur.x, c.cur.z - mine.cur.z);
+      if (c.kind === 'shade' && d < 26 && !mine.hidden) danger = { cls: 'shade', text: 'A shade is hunting! Dig (E) then hide in the hole (H), or stand right by a building' };
+      else if (c.kind === 'brute' && d < 20 && !danger) danger = { cls: 'brute', text: `${c.name} is here! Press R up close to fight it together` };
+    }
+  }
+  $('danger').hidden = !danger;
+  if (danger) { $('danger').textContent = danger.text; $('danger').className = `danger ${danger.cls}`; }
+}
+
 // ---------------------------------------------------------------- loop
 const camPos = new THREE.Vector3(0, 60, 120), camLook = new THREE.Vector3(0, 0, 60), focusV = new THREE.Vector3();
 const v = new THREE.Vector3();
@@ -499,7 +578,9 @@ function frame() {
     p.cur.x += (p.target.x - p.cur.x) * k; p.cur.z += (p.target.z - p.cur.z) * k; p.cur.y += (p.target.y - p.cur.y) * k;
     let dh = p.target.h - p.cur.h; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); p.cur.h += dh * k;
     const moving = Math.hypot(p.target.x - p.cur.x, p.target.z - p.cur.z) > 0.05 || p.anim === 'walk';
-    p.ch.root.position.set(p.cur.x, p.cur.y, p.cur.z);
+    // hiding in a hole: tucked down into the ground
+    p.sink = (p.sink ?? 0) + ((p.hidden ? 1 : 0) - (p.sink ?? 0)) * Math.min(1, dt * 6);
+    p.ch.root.position.set(p.cur.x, p.cur.y - p.sink * 1.35, p.cur.z);
     p.ch.root.rotation.y = p.cur.h;
     // ages advance between snapshots so animations stay smooth
     const since = (now - (p.snapT ?? now)) / 1000;
@@ -515,6 +596,9 @@ function frame() {
     if (p.say) { p.bub.textContent = p.say; p.bub.style.transform = `translate(${sx}px, ${sy - 8}px) translate(-50%, -100%)`; }
   }
   fx.update(dt, fxPlayers, snap?.holes ?? []);
+  buildings.update(now / 1000, dt, snap?.market);
+  critters.update(now / 1000, dt);
+  critterHud();
   // clear grass inside the nearest holes (finished and being dug)
   const nearHoles = (snap?.holes ?? []).map(([x, z]) => ({ x, z, r: 1.3 }));
   for (const q of fxPlayers) if (q.dig !== null) nearHoles.push({ x: q.x + Math.sin(q.h) * 0.75, z: q.z + Math.cos(q.h) * 0.75, r: 0.4 + q.dig * 0.9 });
@@ -586,4 +670,4 @@ renderer.setAnimationLoop(frame);
 if (params.has('overhead')) setOverhead(true);
 $('view-btn').addEventListener('click', () => setOverhead(!sky.on));
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { cam, sky, setOverhead, camDefault: CAM_DEFAULT, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, sky, setOverhead, buildings, critters, camDefault: CAM_DEFAULT, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };

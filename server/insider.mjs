@@ -40,7 +40,7 @@ export class InsiderGame {
       if (this.left <= 0 || this.everyoneVoted()) this.reveal();
     } else if (this.phase === 'reveal' && this.left <= 0) {
       for (const id of this.r.ids) { const p = this.g.players.get(id); if (p) p.meeting = false; }
-      this.phase = 'lobby'; this.left = this.o.cooldown; this.r = null;
+      this.phase = 'lobby'; this.left = this.g.council?.rules.insiderBreak ?? this.o.cooldown; this.r = null;
     }
   }
   pruneLeavers() {
@@ -50,7 +50,7 @@ export class InsiderGame {
       this.last = { round: this.round, outcome: 'void', note: 'the insider left the island' };
       this.g.pushEvent({ kind: 'insider', text: 'The insider fled the island. Round called off.' });
       for (const id of this.r.ids) { const p = this.g.players.get(id); if (p) p.meeting = false; }
-      this.phase = 'lobby'; this.left = this.o.cooldown; this.r = null;
+      this.phase = 'lobby'; this.left = this.g.council?.rules.insiderBreak ?? this.o.cooldown; this.r = null;
     }
   }
 

@@ -45,11 +45,20 @@ await test('spend is metered from reported usage and persisted', () => {
   assert.equal(makeMeter({ budget: 1, file }).spent, cost, 'a restart keeps counting');
 });
 
+await test('a daily budget resets each UTC day (agents that live on the server) while the total keeps counting', () => {
+  let t = Date.parse('2026-09-29T23:00:00Z');
+  const m = makeMeter({ budget: 1, file: null, daily: true, now: () => t });
+  m.add('claude-haiku-4.5', { prompt_tokens: 700_000, completion_tokens: 0 });
+  assert.equal(m.exhausted, true);
+  t += 2 * 3600_000;
+  assert.equal(m.exhausted, false); assert.equal(m.spent, 0); assert.ok(m.snapshot().total > 1);
+});
+
 await test('an AI decision is carried out in the game, spoken aloud and journaled', async () => {
   const journal = join(dir, 'j1.jsonl');
   const s = stub(['Here you go: {"thought":"say hi to everyone","do":"emote","name":"wave","say":"hello island!"}']);
   const llm = makeLLM({ key: 'k', base: 'http://stub', meter: makeMeter({ budget: 20, file: null }), fetchImpl: s.fetchImpl });
-  const a = new Agent({ persona: PERSONAS[0], base: BASE, llm, journal });
+  const a = new Agent({ civic: false, persona: PERSONAS[0], base: BASE, llm, journal });
   const { d, result } = await a.step();
   assert.equal(d.do, 'emote'); assert.equal(d.source, 'ai'); assert.match(result, /wave/);
   assert.equal(s.calls.length, 1);
@@ -65,7 +74,7 @@ await test('a broken reply falls back to a scripted habit instead of stalling', 
   const journal = join(dir, 'j2.jsonl');
   const s = stub(['I think I will go hunting now!']);
   const llm = makeLLM({ key: 'k', base: 'http://stub', meter: makeMeter({ budget: 20, file: null }), fetchImpl: s.fetchImpl });
-  const a = new Agent({ persona: PERSONAS[1], base: BASE, llm, journal });
+  const a = new Agent({ civic: false, persona: PERSONAS[1], base: BASE, llm, journal });
   const obs = await a.observe();
   const d = await a.think(obs);
   assert.equal(d.source, 'script');
@@ -77,7 +86,7 @@ await test('at the spending cap the model is no longer called; agents keep playi
   const s = stub(['{"do":"rest"}', '{"do":"rest"}', '{"do":"rest"}']);
   const meter = makeMeter({ budget: 0.002, file: null }); // one stub call costs 0.0015 + 0.00075
   const llm = makeLLM({ key: 'k', base: 'http://stub', meter, fetchImpl: s.fetchImpl });
-  const a = new Agent({ persona: PERSONAS[2], base: BASE, llm, journal });
+  const a = new Agent({ civic: false, persona: PERSONAS[2], base: BASE, llm, journal });
   const obs = await a.observe();
   assert.equal((await a.think(obs)).source, 'ai');
   assert.equal(meter.exhausted, true);
@@ -89,7 +98,7 @@ await test('at the spending cap the model is no longer called; agents keep playi
 
 await test('watching the sunset: walks to the shore, faces the sun and shares the moment', async () => {
   const journal = join(dir, 'j4.jsonl');
-  const a = new Agent({ persona: PERSONAS[0], base: BASE, llm: null, journal });
+  const a = new Agent({ civic: false, persona: PERSONAS[0], base: BASE, llm: null, journal });
   a.sleepMs = 0;
   const obs = await a.observe();
   const orig = globalThis.setTimeout;
@@ -120,7 +129,7 @@ await test('agents play a whole Insider round: the insider plants a rumour, ever
   };
   const llm = makeLLM({ key: 'k', base: 'http://stub', meter: makeMeter({ budget: 20, file: null }), fetchImpl });
   const journal = join(dir, 'j5.jsonl');
-  const agents = PERSONAS.slice(0, 4).map((persona) => new Agent({ persona, base: 'http://127.0.0.1:5300', llm, journal }));
+  const agents = PERSONAS.slice(0, 4).map((persona) => new Agent({ civic: false, persona, base: 'http://127.0.0.1:5300', llm, journal }));
   const until = Date.now() + 60000;
   const live = agents.map((a) => a.live({ until }));
   const g = srv2.game;

@@ -99,3 +99,29 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 .view-btn { position: absolute; left: 14px; bottom: 14px; pointer-events: auto; font: 700 14px var(--font); border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; background: var(--blue); color: #fff; box-shadow: 0 3px 0 #0008a3; }
 .overhead .view-btn { background: #efe7d6; color: var(--ink); box-shadow: 0 3px 0 #d8cdb4; }
 @media (max-width: 700px) { .view-btn { bottom: 56px; } }
+.council { right: 14px; top: 250px; width: 250px; pointer-events: auto; max-height: calc(100vh - 330px); overflow-y: auto; }
+.council-head { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; width: 100%; gap: 8px; }
+.council-head #council-phase { font-size: 12px; font-weight: 700; color: var(--blue); }
+.council-meta { font-size: 12px; opacity: 0.75; margin: 3px 0 6px; }
+.council-pitches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.council-pitches li { background: #f3ecde; border-radius: 10px; padding: 6px 8px; font-size: 12px; line-height: 1.35; }
+.council-pitches li b { display: block; font-size: 13px; }
+.council-pitches li .by { opacity: 0.6; }
+.council-pitches li .why { display: block; margin-top: 2px; font-style: italic; opacity: 0.8; }
+.council-pitches li.owner { background: #fff2b8; }
+.council-pitches li.enacted { background: #dff5e6; } .council-pitches li.failed, .council-pitches li.unfunded, .council-pitches li.blocked { opacity: 0.55; }
+.council-pitches .tally { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.council-pitches .tally button { font: 700 11px var(--font); border: 0; border-radius: 999px; padding: 3px 10px; cursor: pointer; background: #e5dccb; color: var(--ink); }
+.council-pitches .tally button.on { background: var(--blue); color: #fff; }
+.council-pitches .tally span { margin-left: auto; font-weight: 700; }
+.council-idea { display: flex; gap: 6px; margin: 8px 0; }
+.council-idea input { flex: 1; min-width: 0; font: 13px var(--font); border: 2px solid #e5dccb; border-radius: 8px; padding: 4px 8px; }
+.council-log { margin: 4px 0 0; padding-left: 16px; font-size: 11.5px; line-height: 1.45; opacity: 0.85; }
+.danger { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); background: #2a1f3d; color: #fff; font-weight: 700; padding: 9px 18px; border-radius: 999px; box-shadow: var(--shadow); font-size: 15px; animation: pulse 0.9s ease-in-out infinite alternate; }
+.danger.brute { background: #d7263d; }
+@keyframes pulse { to { transform: translateX(-50%) scale(1.05); } }
+.nametag.critter { color: #ffd0f0; font-size: 13px; }
+.nametag.building { color: #fff; font-size: 12px; opacity: 0.9; }
+.hpbar { display: block; width: 70px; height: 6px; margin: 3px auto 0; background: rgba(0,0,0,.35); border-radius: 3px; overflow: hidden; }
+.hpbar i { display: block; height: 100%; background: #ff5a5a; }
+@media (max-width: 700px) { .council { top: auto; bottom: 120px; right: 8px; width: 210px; max-height: 38vh; } }

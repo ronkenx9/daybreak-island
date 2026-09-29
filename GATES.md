@@ -178,3 +178,30 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
   CHECK: node scripts/check-visuals.mjs --overhead
   EXPECT: OVERHEAD OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=aa55add4589985694cecbd4f84fc0d3c4c6f8abf9180516f3556be747083bafc; exit=0; EXPECT=matched; output-sha256=2a0d74e6f8384c16722f112c4e315cc809a7737165a897f576b841df019c5531; output-bytes=58; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+## Island Council: the self-evolving loop (agents research, pitch, fund, vote, build)
+
+- [x] G32: The council runs itself in epochs (research+propose -> debate -> vote -> enact) with a treasury fed by a tax on chest loot. Pitches cost a fee from the pitcher's own portfolio; pledges move stock units into the treasury; one vote per player; passed proposals are funded best-first while the treasury can pay; everything is recorded in the island chronicle and survives a restart.
+  CHECK: node test/council.mjs
+  EXPECT: COUNCIL OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=67a6ce9ce75e5908ce5591005348842bee57a14e10f3e937adae0bf61436cf9f; exit=0; EXPECT=matched; output-sha256=4dc53f9267ba97b77ddded018ed33ab0d0acbdc225831f80f465134ae5365739; output-bytes=627; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+- [x] G33: Agents can only change the world through the validated genome: a catalogue of buildings (placed only on flat free land that keeps every walkable area reachable, never on the pier, paths or water), rule knobs clamped to bounds and step limits, new made-up stock listings (need an exchange), island events, upgrades and demolitions. Free-form ideas go to a ranked wishlist, never to code. Buildings block walking once built, and their effects work (town hall moves the meeting circle, survey tower extends the detector, beacon draws chests, market recycles junk, roads speed walkers up).
+  CHECK: node test/council-genome.mjs
+  EXPECT: GENOME OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=e2715f56fdb421604679beb0331d8e77f15a129b0c31a197a40b39c0072946f5; exit=0; EXPECT=matched; output-sha256=fdee318033f77e141d2bb5339e203c068eed03abf309fc6a985af1278d65a7f7; output-bytes=618; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+- [x] G34: AI agents take part on their own with the real model interface: read the council report, pitch within the genome (and retry once when the server rejects a pitch, using its reason), argue in debate, vote and pledge, and walk over to help construct winners. A full stub-model epoch ends with a building standing on the island.
+  CHECK: node test/ai-council.mjs
+  EXPECT: AI COUNCIL OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b4c5bcd5f2af59082dccb25493a065347fedb31d3f6f41cfc30f45ef73a77cc2; exit=0; EXPECT=matched; output-sha256=8e8b6f9bbb6466aff7c997082b4b8af2af227d77bae5dab9cd4d6a3b90fb3dcb; output-bytes=466; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+- [x] G35: Buildings render in the browser from the live world state (every catalogue type, under construction with scaffolding and finished), and the Council panel shows the phase, pitches with vote counts, the treasury and the chronicle; a human can vote from the panel.
+  CHECK: node scripts/check-visuals.mjs --council
+  EXPECT: COUNCIL UI OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=d3bf280c1ef3515a0e6d07ef85d9cfa8827f0402d7fc5d025595d179c3a3fbd9; exit=0; EXPECT=matched; output-sha256=67b43c5b23f6c8d2bd1d20fb72ac96e1c3fdf845a195d245a7c944281e6d095d; output-bytes=91; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+- [x] G36: Critters (the owner's pitch): once the council switches them on, monsters roam at intervals; fighters can be fought together for made-up stock; hunters chase anyone in the open and a catch drops part of their bag, while players hiding in a dug hide-hole or inside a building are safe. Off until voted in.
+  CHECK: node test/critters.mjs
+  EXPECT: CRITTERS OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=4a76c797d91b36e0ee26ac4b63632fddb0ad85810dd025d317a3b521100abe42; exit=0; EXPECT=matched; output-sha256=ce14914deb0bc8c5cffca3d425eb58490cf4d70a8c8abea877df451dd63d3777; output-bytes=372; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+- [x] G37: With a dozen random valid buildings on the island, bots still never get stuck.
+  CHECK: node scripts/soak.mjs --bots 12 --hours 1 --runs 2 --builds 12
+  EXPECT: SOAK OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=ae8bcb1aa453ea2359c99eb46ff47274223cc88c7c8459a5c4e0b2a0566efad0; exit=0; EXPECT=matched; output-sha256=810bd7a1deb5dc935871b677abc189523f0f42a3cbbca97749cb0d624887a5b2; output-bytes=116; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

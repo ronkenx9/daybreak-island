@@ -58,6 +58,17 @@
       <div class="label">LEADERBOARD</div>
       <ol id="board"></ol>
     </div>
+    <div class="panel council" id="council">
+      <button class="council-head" id="council-head"><span class="label">ISLAND COUNCIL</span><span id="council-phase"></span></button>
+      <div class="council-meta" id="council-meta"></div>
+      <ol class="council-pitches" id="council-pitches"></ol>
+      <div class="council-more" id="council-more" hidden>
+        <form class="row council-idea" id="council-idea"><input id="council-idea-text" maxlength="200" placeholder="pitch an idea for the island..." autocomplete="off" /><button class="mini">Pitch</button></form>
+        <div class="label">HISTORY</div>
+        <ul class="council-log" id="council-log"></ul>
+      </div>
+    </div>
+    <div class="danger" id="danger" hidden></div>
     <div class="ticker" id="ticker"></div>
     <div class="feed" id="feed"></div>
     <div class="controls" id="controls"><b>W</b> walk · <b>A</b>/<b>D</b> turn · <b>Space</b> scan · <b>E</b> dig · drag to look · <b>C</b> camera behind</div>

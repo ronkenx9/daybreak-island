@@ -9,8 +9,17 @@ import { Game, ACTIONS } from './game.mjs';
 import { openDb } from './db.mjs';
 import { prizePoolFromEnv } from './prizes.mjs';
 
-export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, store = openDb(), prizes = prizePoolFromEnv(store), insider = {} } = {}) {
-  const game = new Game({ secret, prizes, insider });
+// the owner's own pitches go to the council like anyone else's (the agents decide)
+export const OWNER_PITCHES = [
+  {
+    key: 'critters-v1', by: 'the owner', kind: 'rule', args: { rule: 'critters', value: 1 },
+    pitch: 'Monsters! Some you fight together (brutes that drop their hoard of stock), some you have to hide from (shades that chase you; dig a hole and hide in it, or duck in next to a building). Get caught and you drop part of your bag, buried where you fell for anyone to dig up. What do you think?',
+  },
+];
+const councilFromEnv = () => ({ seeds: OWNER_PITCHES, ...Object.fromEntries(['propose', 'debate', 'vote'].filter((k) => process.env[`COUNCIL_${k.toUpperCase()}`]).map((k) => [k, Number(process.env[`COUNCIL_${k.toUpperCase()}`])])) });
+
+export function startServer({ port = Number(process.env.PORT || 5180), prod = process.env.NODE_ENV === 'production', vite = !prod, secret = process.env.SEED_SECRET, store = openDb(), prizes = prizePoolFromEnv(store), insider = {}, council = councilFromEnv() } = {}) {
+  const game = new Game({ secret, prizes, insider, council, store });
   const tokens = new Map(); // agent token -> player id
   // public-server limits
   const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 120);
@@ -45,11 +54,12 @@ export function startServer({ port = Number(process.env.PORT || 5180), prod = pr
     if (path === '/api/health') { send(res, 200, { ok: true, players: game.players.size, tick: game.t }); return true; }
     if (path === '/api/prizes') { send(res, 200, prizes.stats()); return true; }
     if (path === '/api/leaderboard') { send(res, 200, { leaderboard: game.leaderboard() }); return true; }
+    if (path === '/api/council') { send(res, 200, game.council.view(null)); return true; }
     if (path === '/api/join' && req.method === 'POST') {
       const b = await readJson(req);
       const why = canJoin(ipOf(req));
       if (why) { send(res, 429, { ok: false, error: why }); return true; }
-      const p = game.join({ name: b.name, kind: 'agent', look: b.look });
+      const p = game.join({ name: b.name, kind: 'agent', look: b.look, key: b.key });
       const token = randomBytes(12).toString('hex');
       tokens.set(token, p.id);
       send(res, 200, { ok: true, token, id: p.id, name: p.name, look: p.look, actions: ACTIONS, rules: game.view(p).rules });
@@ -111,7 +121,7 @@ export function startServer({ port = Number(process.env.PORT || 5180), prod = pr
         if (id) return; // one player per connection
         const why = canJoin(ip);
         if (why) { ws.send(JSON.stringify({ type: 'full', error: why })); return; }
-        const p = game.join({ name: m.name, kind: 'human', look: m.look });
+        const p = game.join({ name: m.name, kind: 'human', look: m.look, key: m.key });
         id = p.id;
         ws.send(JSON.stringify({ type: 'welcome', id }));
       } else if (m.type === 'act' && id) {
@@ -130,7 +140,7 @@ export function startServer({ port = Number(process.env.PORT || 5180), prod = pr
   server.listen(port, process.env.HOST); // HOST=127.0.0.1 behind a reverse proxy
   return {
     game, server, port, tokens,
-    close() { clearInterval(loop); clearInterval(snapLoop); clearInterval(sweep); wss.close(); server.close(); server.closeAllConnections(); viteServer?.close(); },
+    close() { clearInterval(loop); clearInterval(snapLoop); clearInterval(sweep); for (const p of game.players.values()) game.saveBag(p); game.council.save(); wss.close(); server.close(); server.closeAllConnections(); viteServer?.close(); },
   };
 }
 

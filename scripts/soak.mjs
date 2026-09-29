@@ -4,12 +4,27 @@
 import { Game } from '../server/game.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? Number(process.argv[i + 1]) : d; };
-const BOTS = arg('bots', 12), SECONDS = arg('hours', 1) * 3600, RUNS = arg('runs', 5), DT = 0.05;
+const BOTS = arg('bots', 12), SECONDS = arg('hours', 1) * 3600, RUNS = arg('runs', 5), BUILDS = arg('builds', 0), DT = 0.05;
 const yieldNow = () => new Promise((r) => setImmediate(r));
 
 async function soak() {
   let clock = 0;
   const g = new Game({ now: () => clock * 1000 });
+  // a dozen random (valid) council buildings in the way: walkers must still never get stuck
+  if (BUILDS) {
+    const types = ['town-hall', 'exchange', 'market', 'survey-tower', 'beacon', 'statue', 'lab', 'bank', 'shelter', 'shelter', 'market', 'beacon', 'shelter', 'statue'];
+    let placed = 0;
+    for (let k = 0; k < 4000 && placed < BUILDS; k++) {
+      const type = types[placed % types.length], x = (Math.random() - 0.5) * 240, z = (Math.random() - 0.5) * 240;
+      const v = g.council.validate('build', { type, x, z, honoree: 'soak' });
+      if (v.error) continue;
+      g.council.structures.push({ id: `s${placed}`, type, x: v.spec.x, z: v.spec.z, rot: v.spec.rot, level: 1, progress: 1 });
+      g.council.sync();
+      g.chests = g.chests.filter((ch) => !g.council.blocked(ch.x, ch.z));
+      placed++;
+    }
+    if (placed < BUILDS) console.log(`only found room for ${placed} buildings`);
+  }
   const pending = new Map(), problems = [];
   const bots = [...Array(BOTS)].map((_, i) => ({ i, id: g.join({ name: `soak-${i}`, kind: 'agent' }).id, found: 0, failed: 0 }));
   const act = (b, action, args) => {
@@ -66,6 +81,7 @@ async function soak() {
     }
   }
   for (const b of bots) if (b.failed > 100) { const p = g.players.get(b.id); problems.push(`soak-${b.i} trapped: ${b.failed} walks failed at (${p?.x.toFixed(1)}, ${p?.z.toFixed(1)}); last: ${b.why}`); }
+  if (process.env.SOAK_DEBUG) for (const b of bots.filter((q) => q.found < 5)) { const p = g.players.get(b.id); console.log(`  low: soak-${b.i} found ${b.found}, ${b.failed} failed walks, at (${p?.x.toFixed(1)}, ${p?.z.toFixed(1)}), last: ${b.why ?? '-'}; buildings: ${g.council.structures.map((s) => `${s.type}@${Math.round(s.x)},${Math.round(s.z)}`).join(' ')}`); }
   return { chests: bots.reduce((a, b) => a + b.found, 0), low: bots.filter((b) => b.found < 5).length, problems };
 }
 
