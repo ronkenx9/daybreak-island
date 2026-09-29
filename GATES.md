@@ -173,3 +173,8 @@ Target: three.js WebGPURenderer with TSL node materials (WebGL2 fallback on devi
   CHECK: node scripts/soak.mjs --bots 12 --hours 1 --runs 4
   EXPECT: SOAK OK
   EVIDENCE: automatic-evidence=v1; definition-sha256=9f4761707edbeb839712e839cb32544393edacb09389c0a7129fc21fa71f75af; exit=0; EXPECT=matched; output-sha256=2f091384fbe2ff9a2822b06542d2c4644e9f5ede34e61d920c8ce9a272fbc6a6; output-bytes=224; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries
+
+- [x] G31: Overhead spectator view: V (or the on-screen button) lifts the camera high over the island; WASD / drag pan without moving your character, the wheel zooms out to the whole island, clicking an agent follows it from above, and V returns to the normal camera where W walks again. Shadows, haze and focus adapt to the height.
+  CHECK: node scripts/check-visuals.mjs --overhead
+  EXPECT: OVERHEAD OK
+  EVIDENCE: automatic-evidence=v1; definition-sha256=aa55add4589985694cecbd4f84fc0d3c4c6f8abf9180516f3556be747083bafc; exit=0; EXPECT=matched; output-sha256=2a0d74e6f8384c16722f112c4e315cc809a7737165a897f576b841df019c5531; output-bytes=58; shell=/bin/sh; cwd=/Users/gadgetplug/Documents/vibecoding/daybreak-island; path=64ef29d9c940/21 entries

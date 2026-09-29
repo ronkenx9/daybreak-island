@@ -14,6 +14,7 @@ const MECH = process.argv.includes('--mechanics');
 const POLISH = process.argv.includes('--polish');
 const BACKENDS = process.argv.includes('--backends');
 const CAMERA = process.argv.includes('--camera');
+const OVERHEAD = process.argv.includes('--overhead');
 const INSIDER = process.argv.includes('--insider');
 const SCENIC = process.argv.includes('--scenic');
 const QS = process.argv.includes('--webgl') ? '?backend=webgl' : '';
@@ -110,6 +111,41 @@ if (SCENIC) {
   check(/WAS THE INSIDER|GOT AWAY/.test(rev), `reveal banner (${rev})`);
   await page.screenshot({ path: 'evidence/insider-reveal.png' });
   console.log(`role=${role} hunt=${JSON.stringify(hunt)} meeting=${JSON.stringify(mtg)} reveal=${rev}`);
+} else if (OVERHEAD) {
+  // V: overhead spectator view. High camera, WASD/drag pans, wheel zooms, click follows, V returns.
+  const camY = () => page.evaluate(() => { const d = window.__dbi; return { y: d.view.camera.position.y, on: d.sky.on, x: d.sky.x, z: d.sky.z, dist: d.sky.dist, follow: d.sky.followId }; });
+  const walkedBefore = { x: me.x, z: me.z };
+  await page.keyboard.press('KeyV');
+  await wait(2500);
+  const a = await camY();
+  check(a.on && a.y > 40, `V switches to the overhead view (camera ${a.y.toFixed(1)}m up)`);
+  await page.screenshot({ path: 'evidence/overhead-1.png' });
+  await page.keyboard.down('KeyW'); await wait(900); await page.keyboard.up('KeyW');
+  const b = await camY();
+  check(Math.hypot(b.x - a.x, b.z - a.z) > 15, `W pans the overhead camera (${Math.hypot(b.x - a.x, b.z - a.z).toFixed(1)}m)`);
+  check(Math.hypot(me.x - walkedBefore.x, me.z - walkedBefore.z) < 0.5, 'your character stays put while you look around');
+  await page.mouse.move(640, 360); await page.mouse.wheel({ deltaY: 700 }); await wait(1500);
+  const c = await camY();
+  check(c.dist > b.dist * 1.8, `the wheel zooms out (${b.dist.toFixed(0)} -> ${c.dist.toFixed(0)}m)`);
+  await page.screenshot({ path: 'evidence/overhead-2.png' });
+  // click an agent on screen to follow it
+  await page.evaluate(() => { window.__dbi.sky.dist = 45; const p = [...window.__dbi.players.values()].find((q) => q.name === 'agent-2'); window.__dbi.sky.x = p.cur.x; window.__dbi.sky.z = p.cur.z; });
+  await wait(1800);
+  const at = await page.evaluate(() => { const d = window.__dbi, p = [...d.players.values()].find((q) => q.name === 'agent-2'); const v = d.view.camera.position.clone(); const w = p.ch.root.position.clone(); w.y += 1; w.project(d.view.camera); return { x: (w.x * 0.5 + 0.5) * innerWidth, y: (-w.y * 0.5 + 0.5) * innerHeight }; });
+  await page.mouse.click(at.x, at.y);
+  await wait(300);
+  const d2 = await camY();
+  const want = [...srv.game.players.values()].find((p) => p.name === 'agent-2').id;
+  check(d2.follow === want, `clicking an agent follows it from above (${d2.follow} vs ${want})`);
+  await page.screenshot({ path: 'evidence/overhead-3.png' });
+  await page.keyboard.press('KeyV');
+  await wait(2000);
+  const e = await camY();
+  check(!e.on && e.y < 30, `V goes back to the player camera (camera ${e.y.toFixed(1)}m up)`);
+  await page.keyboard.down('KeyW'); await wait(900); await page.keyboard.up('KeyW'); await wait(400);
+  check(Math.hypot(me.x - walkedBefore.x, me.z - walkedBefore.z) > 1, 'W walks again after leaving the overhead view');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', 'evidence/overhead-1.png', '-i', 'evidence/overhead-2.png', '-i', 'evidence/overhead-3.png', '-filter_complex', 'hstack=3,scale=2400:-1', 'evidence/overhead-strip.png']);
+  console.log(`overhead: up=${a.y.toFixed(0)}m pan=${Math.hypot(b.x - a.x, b.z - a.z).toFixed(0)}m zoom=${c.dist.toFixed(0)}m follow=${d2.follow}`);
 } else if (CAMERA) {
   const view = () => page.evaluate(() => { const d = window.__dbi, p = d.players.get(d.me).cur, c = d.view.camera.position; return { yaw: Math.atan2(c.x - p.x, c.z - p.z), dist: Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z), camYaw: d.cam.yaw, camDist: d.cam.dist }; });
   const angle = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
@@ -272,6 +308,6 @@ check(!errs.length, `page errors: ${errs.join(' | ')}`);
 await browser.close();
 srv.close();
 for (const p of problems) console.log(`  problem: ${p}`);
-const label = SCENIC ? 'SCENIC' : INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
+const label = OVERHEAD ? 'OVERHEAD' : SCENIC ? 'SCENIC' : INSIDER ? 'INSIDER UI' : CAMERA ? 'CAMERA' : BACKENDS ? 'BACKEND' : POLISH ? 'POLISH' : MECH ? 'MECHANICS UI' : TIERS ? 'TIERS' : 'VISUALS';
 console.log(problems.length ? `${label} FAILED` : `${label} OK`);
 process.exit(problems.length ? 1 : 0);

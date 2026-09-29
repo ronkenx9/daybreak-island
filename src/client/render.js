@@ -62,7 +62,7 @@ export async function makeRenderer(container, { tier: forced, backend } = {}) {
   scene.add(sky);
   const hemi = new THREE.HemisphereLight('#bdb0d8', '#7a6258', 0.9); // lavender sky fill, plum bounce
   const sun = new THREE.DirectionalLight('#ffc89e', 5.4);
-  const S = 36; // shadow box half-size around the focus
+  let S = 36; // shadow box half-size around the focus (grows for the overhead view)
   Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 220 });
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.04;
@@ -169,6 +169,14 @@ export async function makeRenderer(container, { tier: forced, backend } = {}) {
     renderer, scene, camera, sun, backend: backendName, focus,
     get tier() { return tierName; },
     setTier(name) { if (TIERS[name]) { tierName = name; tier = TIERS[name]; applyTier(); } },
+    /** shadow box half-size around the focus: small and sharp up close, wide from overhead */
+    setShadowExtent(half) {
+      half = Math.round(half);
+      if (half === S) return;
+      S = half;
+      Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, far: 220 + S * 2 });
+      sun.shadow.camera.updateProjectionMatrix();
+    },
     onTier(fn) { listeners.push(fn); fn(tier, tierName); },
     render(at, dt, now) {
       followSun(at);

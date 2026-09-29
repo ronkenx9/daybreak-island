@@ -199,38 +199,74 @@ function resetView() {
   const f = players.get(watchId ?? me);
   if (f) cam.yaw = (myHeading ?? f.cur.h) + Math.PI; // straight behind, looking where the character looks
 }
+// overhead spectator view (V): a high camera over the island. Drag / WASD pan, wheel or pinch
+// zoom, Q/E (or right-drag) rotate, click someone to ride along with them from above.
+const sky = { on: false, x: 0, z: 60, dist: 80, yaw: Math.PI - 0.11, pitch: 1.02, followId: null };
+function setOverhead(on) {
+  sky.on = on;
+  if (on) {
+    const f = players.get(watchId ?? me);
+    sky.x = f ? f.cur.x : camLook.x; sky.z = f ? f.cur.z : camLook.z;
+    sky.followId = null; sky.yaw = cam.yaw;
+    if (me && lastMove !== '0,0') { lastMove = '0,0'; act('move', { dx: 0, dz: 0 }); } // stop walking
+    stopSweep();
+  }
+  document.body.classList.toggle('overhead', on);
+  $('view-btn').textContent = on ? 'Back to player' : 'Overhead view';
+  $('controls').innerHTML = on
+    ? '<b>Drag</b>/<b>WASD</b> pan · <b>wheel</b> zoom · <b>Q</b>/<b>E</b> rotate · <b>click</b> someone to follow · <b>V</b> back'
+    : (me ? CONTROLS : 'watching agents · Tab to switch · V overhead');
+  view.camera.far = on ? 1100 : 450; view.camera.updateProjectionMatrix();
+}
+const CONTROLS = document.getElementById('controls').innerHTML;
 const clampCam = () => { cam.pitch = Math.min(1.35, Math.max(0.06, cam.pitch)); cam.dist = Math.min(32, Math.max(4.5, cam.dist)); };
 {
   const el = renderer.domElement;
   el.style.touchAction = 'none';
   const pts = new Map();
   let pinch = 0;
-  el.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); el.setPointerCapture(e.pointerId); el.style.cursor = 'grabbing'; });
+  let downAt = null;
+  el.addEventListener('contextmenu', (e) => { if (sky.on) e.preventDefault(); });
+  el.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button }); downAt = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); el.style.cursor = 'grabbing'; });
   el.addEventListener('pointermove', (e) => {
     const p = pts.get(e.pointerId);
     if (!p) return;
     lastDrag = performance.now();
-    if (pts.size === 1) {
+    if (sky.on && pts.size === 1 && p.button !== 2) {
+      // pan: move the ground under the cursor, scaled to how high we are
+      const k = sky.dist * 0.0016, dx = e.clientX - p.x, dy = e.clientY - p.y, c = Math.cos(sky.yaw), sn = Math.sin(sky.yaw);
+      sky.x -= (dx * c + dy * sn) * k; sky.z -= (-dx * sn + dy * c) * k;
+      sky.followId = null;
+    } else if (sky.on && pts.size === 1) {
+      sky.yaw -= (e.clientX - p.x) * 0.006;
+      sky.pitch = Math.min(1.5, Math.max(0.55, sky.pitch + (e.clientY - p.y) * 0.004));
+    } else if (pts.size === 1) {
       cam.yaw -= (e.clientX - p.x) * 0.006;
       cam.pitch += (e.clientY - p.y) * 0.005;
     } else if (pts.size === 2) {
       const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch) cam.dist *= pinch / Math.max(1, d);
+      if (pinch) { if (sky.on) sky.dist = Math.min(230, Math.max(18, sky.dist * pinch / Math.max(1, d))); else cam.dist *= pinch / Math.max(1, d); }
       pinch = d;
     }
     p.x = e.clientX; p.y = e.clientY;
     clampCam();
   });
-  const up = (e) => { pts.delete(e.pointerId); pinch = 0; lastDrag = performance.now(); if (!pts.size) el.style.cursor = 'grab'; };
+  const up = (e) => {
+    // a click (no drag) in the overhead view picks the nearest player on screen to follow
+    if (sky.on && downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6 && pts.size === 1) pickFromSky(e.clientX, e.clientY);
+    pts.delete(e.pointerId); pinch = 0; lastDrag = performance.now(); if (!pts.size) el.style.cursor = 'grab';
+  };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
-  el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist *= Math.exp(e.deltaY * 0.0012); clampCam(); }, { passive: false });
+  el.addEventListener('wheel', (e) => { e.preventDefault(); if (sky.on) sky.dist = Math.min(230, Math.max(18, sky.dist * Math.exp(e.deltaY * 0.0012))); else { cam.dist *= Math.exp(e.deltaY * 0.0012); clampCam(); } }, { passive: false });
   el.style.cursor = 'grab';
 }
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) { if (e.code === 'Escape') e.target.blur(); return; }
   if (e.code === 'Enter' && me) { e.preventDefault(); $('chat').hidden = false; $('chat-text').focus(); return; }
   keys.add(e.code);
+  if (e.code === 'KeyV') { setOverhead(!sky.on); return; }
+  if (sky.on) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); const w = players.get(watchId); if (w) sky.followId = watchId; } if (e.code.startsWith('Digit') && me) { const em = ['wave', 'cheer', 'dance', 'sad', 'shrug'][Number(e.code.slice(5)) - 1]; if (em) act('emote', { name: em }); } return; }
   if (e.code === 'KeyC') resetView();
   if (!me) { if (e.code === 'Tab') { e.preventDefault(); cycleWatch(); } return; }
   if (e.code === 'Space') { e.preventDefault(); startSweep(); }
@@ -241,11 +277,33 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'Space') stopSweep(); });
 addEventListener('blur', () => { keys.clear(); stopSweep(); });
+function panSky(dt) {
+  const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  const r = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+  sky.yaw += ((keys.has('KeyQ') ? 1 : 0) - (keys.has('KeyE') ? 1 : 0)) * 1.4 * dt;
+  if (!f && !r) return;
+  const sp = sky.dist * 0.9 * dt, c = Math.cos(sky.yaw), sn = Math.sin(sky.yaw);
+  // forward = away from the camera, across the ground
+  sky.x += (-sn * f - c * r) * sp; sky.z += (-c * f + sn * r) * sp;
+  sky.followId = null;
+}
+function pickFromSky(cx, cy) {
+  let best = null, bd = 48;
+  for (const [id, p] of players) {
+    v.set(p.cur.x, p.cur.y + 1, p.cur.z).project(camera);
+    const d = Math.hypot((v.x * 0.5 + 0.5) * innerWidth - cx, (-v.y * 0.5 + 0.5) * innerHeight - cy);
+    if (v.z < 1 && d < bd) { bd = d; best = id; }
+  }
+  sky.followId = best;
+  if (best) { $('watching').hidden = document.body.classList.contains('cinema'); $('watching').textContent = `following ${players.get(best).name} from above · drag to let go`; }
+  else $('watching').hidden = !watchId;
+}
 // third-person steering: A/D turn your character, W walks where they look, S steps back.
 // The camera rides behind and turns with them (see the camera section in frame()).
 let lastFace = 0;
 const steer = { fwd: 0, turn: 0 };
 function sendMove(dt) {
+  if (sky.on) { panSky(dt); return; }
   if (!me) return;
   const p = players.get(me);
   if (!p) return;
@@ -478,8 +536,15 @@ function frame() {
   const digCam = !!focus && now - (focus.digSeen ?? -1e9) < 4600;
   digMix += ((digCam ? 1 : 0) - digMix) * (1 - Math.exp(-dt * 3));
   if (digCam && now - lastDrag > 1200) { let d = focus.cur.h + 1.15 - cam.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); cam.yaw += d * (1 - Math.exp(-dt * 2.5)); } // front-left three-quarter
-  const circle = (ins.phase === 'meeting' || ins.phase === 'reveal') && ins.spot; // the circle stays together through the reveal
-  if (circle && (!me || insPrivate?.role !== 'spectator')) {
+  const circle = !sky.on && (ins.phase === 'meeting' || ins.phase === 'reveal') && ins.spot; // the circle stays together through the reveal
+  const skyT = sky.on ? (players.get(sky.followId)?.cur ?? null) : null;
+  if (sky.on) {
+    if (skyT) { sky.x += (skyT.x - sky.x) * (1 - Math.exp(-dt * 4)); sky.z += (skyT.z - sky.z) * (1 - Math.exp(-dt * 4)); }
+    sky.x = Math.max(-200, Math.min(200, sky.x)); sky.z = Math.max(-200, Math.min(220, sky.z));
+    const gy = Math.max(0.3, groundAt(sky.x, sky.z)), flat = Math.cos(sky.pitch) * sky.dist;
+    camPos.lerp(v.set(sky.x + Math.sin(sky.yaw) * flat, gy + Math.sin(sky.pitch) * sky.dist, sky.z + Math.cos(sky.yaw) * flat), 1 - Math.exp(-dt * 6));
+    camLook.lerp(v.set(sky.x, gy, sky.z), 1 - Math.exp(-dt * 6));
+  } else if (circle && (!me || insPrivate?.role !== 'spectator')) {
     const r = 13, a = now / 9000; // a slow orbit around the circle
     camPos.lerp(v.set(ins.spot.x + Math.sin(a) * r * 0.8, groundAt(ins.spot.x, ins.spot.z) + 7, ins.spot.z + Math.cos(a) * r * 0.8), 1 - Math.exp(-dt * 2));
     camLook.lerp(v.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z), 1 - Math.exp(-dt * 3));
@@ -495,7 +560,7 @@ function frame() {
   }
   // never let the ground get between the camera and the player: lift over any hill on the way
   let lift = 0;
-  for (let k = 1; k <= 6; k++) {
+  for (let k = 1; k <= 6 && !sky.on; k++) {
     const t = k / 6, sx = fx0 + (camPos.x - fx0) * t, sz = fz0 + (camPos.z - fz0) * t;
     lift = Math.max(lift, groundAt(sx, sz) + 1.4 + t * 1.5 - (fy + (camPos.y - fy) * t));
   }
@@ -505,11 +570,20 @@ function frame() {
   camera.lookAt(camLook);
   focusV.set(fx0, fy + 1, fz0);
   if (circle) focusV.set(ins.spot.x, groundAt(ins.spot.x, ins.spot.z) + 1, ins.spot.z);
+  if (sky.on) focusV.copy(camLook);
+  // from overhead: shadows cover the whole view, the haze pulls back, and a shallow focus makes it a miniature
+  const skyK = sky.on ? sky.dist : 0;
+  view.setShadowExtent(sky.on ? Math.min(150, 30 + sky.dist * 0.75) : 36);
+  scene.fog.near = 90 + skyK * 1.6; scene.fog.far = 380 + skyK * 2.6;
+  view.focus.range.value = sky.on ? Math.max(14, sky.dist * 0.45) : 22;
+  view.focus.bokeh.value = sky.on ? 1.6 : 0.9;
   island.update(now / 1000, focusV);
   view.render(focusV, dt, now);
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 2) { window.__fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
 }
 renderer.setAnimationLoop(frame);
+if (params.has('overhead')) setOverhead(true);
+$('view-btn').addEventListener('click', () => setOverhead(!sky.on));
 if (params.has('debug')) window.__tsl = await import('three/tsl'); // live shader experiments in dev tools
-window.__dbi = { cam, camDefault: CAM_DEFAULT, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };
+window.__dbi = { cam, sky, setOverhead, camDefault: CAM_DEFAULT, follow, get insiderPhase() { return ins.phase; }, renderer, scene, players, view, fx, island, get me() { return me; } };

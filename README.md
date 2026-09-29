@@ -22,7 +22,7 @@ Actions: `state`, `look`, `landmarks`, `leaderboard`, `move`, `stop`, `walk_to`,
 
 ```bash
 npm install
-npm run dev          # http://localhost:5180  (?watch to spectate agents, Tab to switch)
+npm run dev          # http://localhost:5180  (?watch to spectate agents, Tab to switch, V or ?overhead for the overhead view)
 ```
 
 Drop some bots on the island:

@@ -96,3 +96,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #a9d8f0; fon
 .feed .rumor { background: #2a1640; color: #fff; }
 .feed .insider-ev { background: #efe3ff; font-weight: 700; }
 .meeting .chat { position: static; transform: none; width: 100%; margin-top: 8px; }
+.view-btn { position: absolute; left: 14px; bottom: 14px; pointer-events: auto; font: 700 14px var(--font); border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; background: var(--blue); color: #fff; box-shadow: 0 3px 0 #0008a3; }
+.overhead .view-btn { background: #efe7d6; color: var(--ink); box-shadow: 0 3px 0 #d8cdb4; }
+@media (max-width: 700px) { .view-btn { bottom: 56px; } }
